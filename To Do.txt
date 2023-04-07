@@ -1,0 +1,4 @@
+To Do
+- list all possible scene transitions
+- guess location and search around it instead of brute forcing through entire video
+- 

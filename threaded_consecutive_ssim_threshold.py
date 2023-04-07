@@ -8,117 +8,296 @@ import cv2
 import numpy
 from skimage.metrics import structural_similarity as ssim
 
+MAX_SSIM = 1
+MIN_SSIM = -1
+SSIM_SCORE_THRESHOLD = .2
 
-def frame_ssim_compare(input1, input2):
-    if os.path.isfile(input1) and os.path.isfile(input2):
-        original = cv2.imread(input1)
-        original = cv2.cvtColor(original, cv2.COLOR_BGR2GRAY)
+def crop_frame_letterbox(img):
+    # Read the image, convert it into grayscale, and make in binary image for threshold value of 1.
+    # img = cv2.imread('sofwin.png')
+    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+    _,thresh = cv2.threshold(gray,1,255,cv2.THRESH_BINARY)
 
-        alternate = cv2.imread(input2)
-        alternate = cv2.cvtColor(alternate, cv2.COLOR_BGR2GRAY)
+    # Now find contours in it. There will be only one object, so find bounding rectangle for it.
+    contours,hierarchy = cv2.findContours(thresh,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+    if contours:
+        cnt = contours[0]
+        x,y,w,h = cv2.boundingRect(cnt)
+        
+        # Now crop the image, and save it into another file.
+        crop = img[y:y+h,x:x+w]
+        # view_frames(img,crop)
+        # cv2.imwrite('sofwinres.png',crop)
+        return True, crop
+    else:
+        return False, img
 
-    elif isinstance(input1, numpy.ndarray) and isinstance(input2, numpy.ndarray):
-        original = cv2.cvtColor(input1, cv2.COLOR_BGR2GRAY)
-        alternate = cv2.cvtColor(input2, cv2.COLOR_BGR2GRAY)
+def view_frame(frame):
+    while True:
+        cv2.imshow('Frame', frame)
+        if cv2.waitKey(1) == ord('q'):
+            break
 
-    s = ssim(original, alternate)
-    return s
+def view_frames(frame_1, frame_2):
+    while True:
+        cv2.imshow('Frame 1', frame_1)
+        cv2.imshow('Frame 2', frame_2)
+        if cv2.waitKey(1) == ord('q'):
+            break
 
-def transform_frame(frame,scaling_factor=.1):
-    height, width, _ = frame.shape
-    dim = int(width*scaling_factor), int(height*scaling_factor)
-    resized_frame = cv2.resize(frame, dim, interpolation=cv2.INTER_AREA)
-    grey_scale_frame = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2GRAY)
+def resize_frame(frame, width_scaling_factor=None, height_scaling_factor=None, dim=None):
+    if width_scaling_factor is None:
+        width_scaling_factor = 1
+    if height_scaling_factor is None:
+        height_scaling_factor = 1
+    if dim is None:
+        height, width, _ = frame.shape
+        dim = int(width*width_scaling_factor), int(height*height_scaling_factor)
+    return cv2.resize(frame, dim, interpolation=cv2.INTER_AREA)
+
+def transform_frame(frame, scaling_factor = .1, dim=None, cropped=False):
+    # print('OG Frame:')
+    # print(frame.shape)
+    # if cropped:
+    #     _, frame = crop_frame_letterbox(frame)
+    #     print('Just cropped:')
+    #     print(frame.shape)
+    if dim is not None:
+        frame = resize_frame(frame,dim=dim)
+    scaled_down_frame = resize_frame(frame,scaling_factor,scaling_factor)
+
+    # print("Resized frame:")
+    # print(scaled_down_frame.shape)
+    grey_scale_frame = cv2.cvtColor(scaled_down_frame, cv2.COLOR_BGR2GRAY)
     return grey_scale_frame
 
-def find_transition(video_path):
-    cap = cv2.VideoCapture(video_path)
-    idx = 0 
-    ssim_scores = {}
+def calculate_frame_ssim(frame_1, frame_2):
+    resized_frame_1 = transform_frame(frame_1)
+    resized_frame_2 = transform_frame(frame_2)
+    return ssim(resized_frame_1, resized_frame_2)
 
+def check_frame_match(frame_1, frame_2, match_threshold = None):
+    if match_threshold is None:
+        match_threshold = .9
+    ssim_score = calculate_frame_ssim(frame_1, frame_2)
+    if ssim_score >= match_threshold:
+        return True
+    else:
+        return False
+
+
+def iterate_consecutive_frames(video_path):
+    cap = cv2.VideoCapture(video_path)
+    idx = 0
+    ssim_scores = {}
+    _, frame_1 = cap.read()
     while True:
-        _, frame_1 = cap.read()
         success, frame_2 = cap.read()
         if success:
-            resized_frame_1 = transform_frame(frame_1)
-            resized_frame_2 = transform_frame(frame_2)
-            ssim_score = ssim(resized_frame_1, resized_frame_2)
+            # view_frames(frame_1,frame_2)
+            ssim_score = calculate_frame_ssim(frame_1, frame_2)
             ssim_scores[idx] = ssim_score
             idx += 1
+            frame_1 = frame_2
         else:
             break
-    
-    print(ssim_scores)
-    min_index = min(ssim_scores, key=ssim_scores.get)
-    print(min_index, ssim_scores[min_index])
+    return ssim_scores
 
-class Worker(threading.Thread):
+def find_transition(video_path, view=None):
+    if view is None:
+        view = False
+    ssim_scores = iterate_consecutive_frames(video_path)
+    min_index = min(ssim_scores, key=ssim_scores.get)
+    if view:
+        cap = cv2.VideoCapture(video_path)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, min_index)
+        _, frame_1 = cap.read()
+        _, frame_2 = cap.read()
+        # view_frames(frame_1, frame_2)
+    return min_index
+
+class Worker_Transition(threading.Thread):
     """
     Specialized subclass to handle video through threads
     """
+
     def __init__(self):
         threading.Thread.__init__(self)
         self.queue = queue.Queue(maxsize=20)
 
-    def decode(self, video_path, fnos, worker_queue, stop_event, thread_number, frames_per_thread, result):
-        self.queue.put((video_path, fnos, worker_queue, stop_event,
-                       thread_number, frames_per_thread, result))
-    
+    def decode(self, video_source, fnos, worker_queue, stop_event, result, no_match):
+        self.queue.put((video_source, fnos, worker_queue, stop_event,
+                        result, no_match))
+
     def run(self):
         """the run loop to execute frame reading"""
-        video_path, fnos, worker_queue, stop_event, thread_number, frames_per_thread, result = self.queue.get()
-        cap = cv2.VideoCapture(video_path)
+        video_source, fnos, worker_queue, stop_event, result, no_match = self.queue.get()
+        
+        cap = cv2.VideoCapture(video_source.file)
+        min_ssim = MAX_SSIM
 
-        # set initial frame
-        cap.set(cv2.CAP_PROP_POS_FRAMES, fnos[0])
-        success, img = cap.read()
-
-        ssim_scores = {}
         for fno in fnos:
-            print(fno)
-            if not stop_event.is_set():
-                cap.set(cv2.CAP_PROP_POS_FRAMES, fno)
-                _, frame_1 = cap.read()
-                success, frame_2 = cap.read()
-                if success:
-                    resized_frame_1 = transform_frame(frame_1)
-                    resized_frame_2 = transform_frame(frame_2)
-                    ssim_score = ssim(resized_frame_1, resized_frame_2)
-                    ssim_scores[(fno,fno+1)] = ssim_score
-                    # print(min(ssim_scores, key=ssim_scores.get))
+            if stop_event.is_set():
+                break
+            cap.set(cv2.CAP_PROP_POS_FRAMES, fno)
+            _, frame_1 = cap.read()
+            timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+            success, frame_2 = cap.read()
+            if success:
+                resized_frame_1 = transform_frame(frame_1)
+                resized_frame_2 = transform_frame(frame_2)
+                ssim_score = ssim(resized_frame_1, resized_frame_2)
 
-                if ssim_score > 1  and cv2.countNonZero(resized_frame_1) and cv2.countNonZero(resized_frame_2):
-                    worker_queue.put(fno)
-                    print(f"This is thread {self}")
-                    print(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                    result.extend(
-                        [resized_frame_1, resized_frame_2, ssim_score, fno,cap.get(cv2.CAP_PROP_POS_MSEC)])
-                    break
-        worker_queue.put(thread_number)
-                # if idx > len(fnos):  # use of > ensures ssim is calculated at boundary of fnos. without idx the while loop would continue reading past the length of fnos
-                #     break
+                if ssim_score <= min_ssim:
+                    min_frame = [frame_1, frame_2,
+                                 ssim_score, fno, timestamp]
+                    min_ssim = ssim_score
 
-                # resize = resize_next
-            # put worker ID in queue
-        # if not stop_event.is_set():
-        #     worker_queue.put(thread_number)
-        cap.release()
+            # avoid completely black frames
+            if ssim_score < SSIM_SCORE_THRESHOLD and cv2.countNonZero(resized_frame_1) and cv2.countNonZero(resized_frame_2):
+                # signal the other threads to stop working
+                stop_event.set()
+                result.extend(min_frame)
+                worker_queue.put(self)
+                return
+        if not stop_event.is_set():
+            no_match.append(min_frame)
+            cap.release()
 
 
-def threaded_consecutive_ssim_threshold(video_path):
-    cap = cv2.VideoCapture(video_path)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fnos = list(range(total_frames))
+class Worker_Transition_Match(threading.Thread):
+
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.queue = queue.Queue(maxsize=20)
+
+    def decode(self, video_source_1, fnos, worker_queue, stop_event, result, no_match, video_source_2):
+
+        self.queue.put((video_source_1, fnos, worker_queue,
+                       stop_event, result, no_match, video_source_2))
+
+    def run(self):
+        """the run loop to execute frame reading"""
+        video_source_1, fnos, worker_queue, stop_event, result, no_match, video_source_2 = self.queue.get()
+        cap = cv2.VideoCapture(video_source_1.file)
+        max_ssim = MIN_SSIM
+
+        target_frame_1, target_frame_2 = video_source_2.frames
+        print(f"target frame inital shape: {target_frame_1.shape}")
+        target_frame_1 = transform_frame(target_frame_1,cropped=video_source_2.letterbox)
+        target_frame_2 = transform_frame(target_frame_2,cropped=video_source_2.letterbox)
+
+        for fno in fnos:
+            if stop_event.is_set():
+                break
+            cap.set(cv2.CAP_PROP_POS_FRAMES, fno)
+            _, frame_1 = cap.read()
+            timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+            success, frame_2 = cap.read()
+            if success:
+                if video_source_1.scale:
+                    resized_frame_1 = transform_frame(frame_1,dim=(video_source_1.width_scaled,video_source_1.height_scaled),cropped=video_source_1.letterbox)
+                    resized_frame_2 = transform_frame(frame_2,dim=(video_source_1.width_scaled,video_source_1.height_scaled),cropped=video_source_1.letterbox)
+                else:
+                    resized_frame_1 = transform_frame(frame_1,cropped=video_source_1.letterbox)
+                    resized_frame_2 = transform_frame(frame_2,cropped=video_source_1.letterbox)
+                # view_frames(resized_frame_1, target_frame_1)
+                print(f"resized frame: {resized_frame_1.shape}")
+                print(f"target frame: {target_frame_1.shape}")
+                print(timestamp)
+                ssim_score_target_frame_1 = ssim(
+                    resized_frame_1, target_frame_1)
+                # view_frames(resized_frame_2, target_frame_2)
+                ssim_score_target_frame_2 = ssim(
+                    resized_frame_2, target_frame_2)
+
+                if ssim_score_target_frame_1 >= max_ssim:
+                    max_frame = [frame_1, frame_2,
+                                 ssim_score_target_frame_1, fno, timestamp]
+                    max_ssim = ssim_score_target_frame_1
+
+                if ssim_score_target_frame_1 > .9 and ssim_score_target_frame_2 > .9:
+                    # signal the other threads to stop working
+                    stop_event.set()
+                    print("Match found.")
+                    worker_queue.put(self)
+                    max_frame.extend([True])
+                    result.extend(max_frame)
+                    return
+        if not stop_event.is_set():
+            max_frame.extend([False])
+            no_match.append(max_frame)
+            cap.release()
+
+
+class Worker_Frame_Match(threading.Thread):
+
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.queue = queue.Queue(maxsize=20)
+
+    def decode(self, video_path, fnos, worker_queue, stop_event, result, no_match, target_frame):
+        self.queue.put((video_path, fnos, worker_queue,
+                       stop_event, result, no_match, target_frame))
+
+    def run(self):
+        """the run loop to execute frame reading"""
+        video_path, fnos, worker_queue, stop_event, result, no_match, target_frame = self.queue.get()
+        cap = cv2.VideoCapture(video_path)
+        max_ssim = MIN_SSIM
+
+        for fno in fnos:
+            if stop_event.is_set():
+                break
+            cap.set(cv2.CAP_PROP_POS_FRAMES, fno)
+            success, frame_1 = cap.read()
+            timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+            if success:
+                resized_frame_1 = transform_frame(frame_1)
+                ssim_score_target_frame = ssim(resized_frame_1, target_frame)
+
+                if ssim_score_target_frame >= max_ssim:
+                    max_frame = [frame_1, target_frame,
+                                 ssim_score_target_frame, fno, timestamp]
+                    max_ssim = ssim_score_target_frame
+
+                if ssim_score_target_frame > .9:
+                    # signal the other threads to stop working
+                    stop_event.set()
+                    print("Match found.")
+                    worker_queue.put(self)
+                    result.extend(max_frame)
+                    return
+        if not stop_event.is_set():
+            no_match.append(max_frame)
+            cap.release()
+
+
+def threaded_ssim(video_source_1, worker, closest_match, video_source_2=None, frame_window=None):
+    """
+    closest_match is preference for max/min when there is no match found for all threads
+    """
+
+    cap = cv2.VideoCapture(video_source_1.file)
+
+    if frame_window is None:
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fnos = list(range(total_frames))
+    else:
+        total_frames = int(frame_window[1]-frame_window[0])
+        fnos = list(range(frame_window[0], frame_window[1]+1))
 
     n_threads = 4  # n_threads is the number of worker threads to read video frame
     # store frame number for each threads
     tasks = [[] for _ in range(n_threads)]
     frames_per_thread = math.ceil(total_frames / n_threads)
+
     for idx, fno in enumerate(fnos):
         tasks[math.floor(idx / frames_per_thread)].append(fno)
 
-    # list to hold winner
+    # list to hold winner and no matches
     result = []
+    no_match = []
 
     # queue for workers
     worker_queue = queue.Queue()
@@ -129,33 +308,38 @@ def threaded_consecutive_ssim_threshold(video_path):
     # create and start threads
     threads = []
     for _ in range(n_threads):
-        w = Worker()
+        w = worker()
         # w.setDaemon(True) # daemon threads will die once ssim threshold is reached since program ends
         threads.append(w)
         w.start()
 
-    for idx, w in enumerate(threads):
-        w.decode(video_path, tasks[idx], worker_queue,
-                 stop_event, idx, frames_per_thread, result)
+    if video_source_2 is not None:
+        for idx, w in enumerate(threads):
+            w.decode(video_source_1,
+                    tasks[idx], worker_queue, stop_event, result, no_match, video_source_2)
+    else:
+        for idx, w in enumerate(threads):
+            w.decode(video_source_1,
+                    tasks[idx], worker_queue, stop_event, result, no_match)
+
+    while worker_queue.empty():
+        if len(no_match) != n_threads:
+            pass
+        else:
+            worker_queue.put('No match!')
+            closest_frame = closest_match(no_match, key=lambda x: x[2])
+            result.extend(closest_frame)
+            break
 
     # this will block until the first element is in the queue
     first_finished = worker_queue.get()
-    print(f'Thread {first_finished} was first!')
+    # print(f'Thread {first_finished} was first!')
+    # print(result)
     td = timedelta(seconds=result[4]/1000)
     print(f'SSIM score of {result[2]}, Frame number {result[3]}, Time: {td}')
 
-    # signal the rest to stop working
-    stop_event.set()
-
-    while True:
-        cv2.imshow('first',result[0])
-        cv2.imshow('second',result[1])
-        if cv2.waitKey(1) == ord('q'):
-            break
+    # view_frames(result[0], result[1])
 
     # Adding code to search second video for match
     cap.release()
-    return (tuple(result))
-
-# threaded_consecutive_ssim_threshold("./video.mp4")
-find_transition("./video.mp4")
+    return result
