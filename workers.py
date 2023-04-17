@@ -3,11 +3,10 @@ import queue
 import threading
 
 import cv2
-from skimage.metrics import structural_similarity as ssim
-
 import timer
 from helpers import (MAX_SSIM, MIN_SSIM, SSIM_SCORE_THRESHOLD, transform_frame,
                      view_frames)
+from skimage.metrics import structural_similarity as ssim
 
 
 def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset=None):
@@ -25,19 +24,19 @@ def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset
         # set position by frame
         cap.set(cv2.CAP_PROP_POS_FRAMES,
                 reference_vid.transition_frames_number + frame_offset)
-        positive_output = f'{reference_vid.file} is in sync with {to_sync_vid.file} with an offset of {frame_offset} frames!'
-        negative_output = f'{reference_vid.file} is out of sync with {to_sync_vid.file} with an offset of {frame_offset} frames!'
+        positive_output = f'{reference_vid.file} is in sync with {to_sync_vid.file} with an offset of {frame_offset} frames!\n'
+        negative_output = f'{reference_vid.file} is out of sync with {to_sync_vid.file} with an offset of {frame_offset} frames!\n'
 
     elif time_offset is not None:
         # set position by timestamp
         cap.set(cv2.CAP_PROP_POS_MSEC,
                 reference_vid.transition_frames_timestamp + time_offset)
-        positive_output = f'{reference_vid.file} is in sync with {to_sync_vid.file} with an offset of {time_offset/1000} milliseconds!'
-        negative_output = f'{reference_vid.file} is out of sync with {to_sync_vid.file} with an offset of {time_offset/1000} milliseconds!'
+        positive_output = f'{reference_vid.name} is in sync with {to_sync_vid.name} with an offset of {time_offset/1000} milliseconds!\n'
+        negative_output = f'{reference_vid.name} is out of sync with {to_sync_vid.name} with an offset of {time_offset/1000} milliseconds!\n'
     else:
         cap.set(cv2.CAP_PROP_POS_MSEC, reference_vid.transition_frames_timestamp)
-        positive_output = f'{reference_vid.file} is in sync with {to_sync_vid.file}!'
-        negative_output = f'{reference_vid.file} is out of sync with {to_sync_vid.file}!'
+        positive_output = f'{reference_vid.name} is in sync with {to_sync_vid.name}!'
+        negative_output = f'{reference_vid.name} is out of sync with {to_sync_vid.name}!'
     _, frame_1 = cap.read()
     success, frame_2 = cap.read()
     if success:
@@ -63,10 +62,10 @@ def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset
         else:
             print(negative_output)
             view = input(
-                f"The quick match SSIM is {ssim_score_target_frame_1}. Would you like to manually view?")
+                f"The quick match SSIM is {ssim_score_target_frame_1}. Would you like to manually view? ")
             if view.lower() == "yes" or view.lower() == 'y':
                 view_frames(resized_frame_1, target_frame_1)
-                manual_inspect = input(f"Are the frames in sync?")
+                manual_inspect = input(f"Are the frames in sync? ")
                 if manual_inspect.lower() == "yes" or manual_inspect.lower() == 'y':
                     quick_match = True
                     reference_vid.match_found = True
@@ -100,7 +99,7 @@ class Worker_Transition(threading.Thread):
             while True and frame_number <= fnos[-1]:
                 if stop_event.is_set():
                     break
-                timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+                timestamp = round(cap.get(cv2.CAP_PROP_POS_MSEC))
                 success, frame_2 = cap.read()
                 if success:
                     resized_frame_1 = transform_frame(frame_1)
@@ -158,7 +157,7 @@ class Worker_Transition_Match(threading.Thread):
             while True and frame_number <= fnos[-1]:
                 if stop_event.is_set():
                     break
-                timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+                timestamp = round(cap.get(cv2.CAP_PROP_POS_MSEC))
                 success, frame_2 = cap.read()
                 if success:
                     if video_source_1.scale:
@@ -222,7 +221,7 @@ class Worker_Frame_Match(threading.Thread):
             if stop_event.is_set():
                 break
             success, frame_1 = cap.read()
-            timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+            timestamp = round(cap.get(cv2.CAP_PROP_POS_MSEC))
             if success:
                 resized_frame_1 = transform_frame(frame_1)
                 ssim_score_target_frame = ssim(resized_frame_1, target_frame)
@@ -284,8 +283,8 @@ def threaded_ssim(video_source_1, worker, closest_match, video_source_2=None, fr
         threads.append(w)
         w.start()
 
-    t = timer.Timer()
-    t.start()
+    # t = timer.Timer()
+    # t.start()
     if video_source_2 is not None:
         for idx, w in enumerate(threads):
             w.decode(video_source_1,
@@ -326,9 +325,9 @@ def threaded_ssim(video_source_1, worker, closest_match, video_source_2=None, fr
         "Transition Frame Timestamp")
     video_source_1.transition_frames = result.get("Transition Frames")
 
-    t.stop()
     # this will block until the first element is in the queue
     # worker_queue.get()
 
+    # t.stop()
     cap.release()
     return result

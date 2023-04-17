@@ -3,7 +3,6 @@ import os
 
 import cv2
 import numpy as np
-
 import workers
 from helpers import (crop_frame, frame_is_letterboxed, get_fps_cv_native,
                      get_frame_aspect_ratio, view_frames)
@@ -22,60 +21,60 @@ def print_find_result(vid_1, vid_2):
             csv_writer = csv.writer(
                 csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             csv_writer.writerow(
-                ["File 1", "File 2", "Match Found", "V1F1 Number", "V2F1 Number", "Delay"])
+                ["File 1", "File 2", "Match Found", "V1F1 Timestamp", "V2F1 Timestamp", "Delay"])
 
     with open(os.path.join(os.path.split(vid_1.file)[0], 'frame_sync.csv'), mode='a') as csvfile:
         csv_writer = csv.writer(csvfile, delimiter=',',
                                 quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        print(
-            f'The local minimum SSIM between consecutive frames of {os.path.split(reference_vid.file)[1]} is {reference_vid.transition_frames_ssim}')
+        # print(
+        #     f'The local minimum SSIM between consecutive frames of {reference_vid.name} is {reference_vid.transition_frames_ssim}')
         if reference_vid.match_found:
             print(
-                f'Match found between {os.path.split(reference_vid.file)[1]} and {os.path.split(to_sync_vid.file)[1]}!')
+                f'\nMatch found between {reference_vid.name} and {to_sync_vid.name}!')
             print(
-                f'The closest match has SSIM {to_sync_vid.match_frames_ssim} between frames.')
+                f'The closest match has SSIM {to_sync_vid.match_frames_ssim} between frames.\n')
 
             timestamp_difference = reference_vid.transition_frames_timestamp - \
                 to_sync_vid.transition_frames_timestamp
             if timestamp_difference > 0:
+                # print(
+                #     f'{reference_vid.name} is out of sync with {to_sync_vid.name}')
                 print(
-                    f'{os.path.split(reference_vid.file)[1]} is out of sync with {os.path.split(to_sync_vid.file)[1]}')
+                    f'{reference_vid.name} timestamp is {reference_vid.transition_frames_timestamp}ms.')
                 print(
-                    f'V1F1 timestamp is {reference_vid.transition_frames_timestamp}')
+                    f'{to_sync_vid.name} timestamp is {to_sync_vid.transition_frames_timestamp}ms.')
                 print(
-                    f'V2F1 timestamp is {to_sync_vid.transition_frames_timestamp}')
-                print(
-                    f'{os.path.split(to_sync_vid.file)[1]} needs to be delayed {timestamp_difference / 1000} seconds.\n')
+                    f'{to_sync_vid.name} needs to be delayed {timestamp_difference} milliseconds.\n')
             elif timestamp_difference < 0:
+                # print(
+                #     f'{reference_vid.name} is out of sync with {to_sync_vid.name}')
                 print(
-                    f'{os.path.split(reference_vid.file)[1]} is out of sync with {os.path.split(to_sync_vid.file)[1]}')
+                    f'{reference_vid.name} timestamp is {reference_vid.transition_frames_timestamp}ms.')
                 print(
-                    f'V1F1 timestamp is {reference_vid.transition_frames_timestamp}')
+                    f'{to_sync_vid.name} timestamp is {to_sync_vid.transition_frames_timestamp}ms.')
                 print(
-                    f'V2F1 timestamp is {to_sync_vid.transition_frames_timestamp}')
-                print(
-                    f'{os.path.split(reference_vid.file)[1]} needs to be delayed {-1*timestamp_difference / 1000} seconds.\n')
-            else:
-                print(
-                    f'{os.path.split(reference_vid.file)[1]} is in sync with {os.path.split(to_sync_vid.file)[1]}\n')
-                print(
-                    f'V1F1 timestamp is {reference_vid.transition_frames_timestamp}')
-                print(
-                    f'V2F1 timestamp is {to_sync_vid.transition_frames_timestamp}')
+                    f'{reference_vid.name} needs to be delayed {-1*timestamp_difference} milliseconds.\n')
+            # else:
+                # print(
+                #     f'{reference_vid.name} is in sync with {to_sync_vid.name}\n')
+                # print(
+                #     f'{reference_vid.file} timestamp is {reference_vid.transition_frames_timestamp}')
+                # print(
+                #     f'{to_sync_vid.file} timestamp is {to_sync_vid.transition_frames_timestamp}')
 
             csv_writer.writerow(
-                [reference_vid.file, to_sync_vid.file, reference_vid.match_found, reference_vid.transition_frames_timestamp, to_sync_vid.transition_frames_timestamp, timestamp_difference / 1000])
+                [reference_vid.file, to_sync_vid.file, reference_vid.match_found, reference_vid.transition_frames_timestamp, to_sync_vid.transition_frames_timestamp, timestamp_difference])
         else:
             print(
-                f'No frame match found between {os.path.split(reference_vid.file)[1]} and {os.path.split(to_sync_vid.file)[1]}')
+                f'\nNo frame match found between {reference_vid.name} and {to_sync_vid.name}')
             print(
                 f'The closest match has SSIM {to_sync_vid.match_frames_ssim} between frames.\n')
             view = input(
-                f"Would you like to manually view?")
+                f"Would you like to manually view? ")
             if view.lower() == "yes" or view.lower() == 'y':
                 view_frames(
                     reference_vid.transition_frames[0], to_sync_vid.transition_frames[0])
-                manual_inspect = input(f"Are the frames in sync?")
+                manual_inspect = input(f"Are the frames in sync? ")
                 if manual_inspect.lower() == "yes" or manual_inspect.lower() == 'y':
                     reference_vid.match_found = True
                     to_sync_vid.match_found = True
@@ -105,6 +104,7 @@ class VideoSource():
         self.reference_vid = None
         self.to_sync_vid = None
         self.fps = None
+        self.name = os.path.split(file)[1]
 
     def set_vid_info(self):
         """Get first non-black frame and check for letterboxing"""
