@@ -1,8 +1,8 @@
-# Project Title
+# OpenCV Video Sync
 
-One Paragraph of project description goes here
+Harness the power of the OpenCV framework to seamlessly synchronize two videos by determining the necessary delay. Experience fast performance with multi-threading, as the video files are intelligently divided into chunks for optimized processing. Unleash the full potential of your video editing with this cutting-edge solution!
 
-## Getting Started
+<!-- ## Getting Started
 
 These instructions will get you a copy of the project up and running on your local machine for development and testing purposes. See deployment for notes on how to deploy the project on a live system.
 
@@ -30,75 +30,49 @@ And repeat
 until finished
 ```
 
-End with an example of getting some data out of the system or using it for a little demo
-
-## Deployment
-
-Add additional notes about how to deploy this on a live system
+End with an example of getting some data out of the system or using it for a little demo -->
 
 ## Project Development
 
-First researching available solutions resulted in finding https://github.com/jeorgen/align-videos-by-sound
-Similar goals but different implementations: https://github.com/tp7/Sushi, https://github.com/smacke/ffsubsync, https://github.com/protyposis/AudioAlign
+### Research and Initial Approach
 
-The initial strategy to accomplish the solution of syncing two videos was as follows:
+During the initial phase, several existing solutions were explored, such as [align-videos-by-sound](https://github.com/jeorgen/align-videos-by-sound), which uses audio as a track to sync, along with other projects like [Sushi](https://github.com/tp7/Sushi), [ffsubsync](https://github.com/smacke/ffsubsync), and [AudioAlign](https://github.com/protyposis/AudioAlign).
 
-    - extract individual frames as images using ffmpeg and compare from those images
-        - https://stackoverflow.com/questions/10957412/fastest-way-to-extract-frames-using-ffmpeg
+The primary strategy for syncing two videos consisted of:
+- Extracting individual frames as images using [ffmpeg](https://stackoverflow.com/questions/10957412/fastest-way-to-extract-frames-using-ffmpeg)
+- Selecting a frame from the first video and finding its match in the second video
+- Comparing frames using the Structural Similarity Index Measure (SSIM)
 
-Then realized frame extraction was unnecessary, as the images are represented as Numpy arrays and could be left in memory:
-    - frames can just be kept in memory as objects and we just keep track of which frame we are dealing with
-    - Introduce threading to process the video at multiple timestamps. The thought being that this would decrease the average time, and increase the worst case time. https://vuamitom.github.io/2019/12/13/fast-iterate-through-video-frames.html
+### Improvements and Optimizations
 
-I had very little knowledge of video analysis and tools. Here were some useful resources during my learning:
-    - https://www.pyimagesearch.com/2014/09/15/python-compare-two-images/
-    - https://superuser.com/questions/841872/how-do-i-extract-the-timestamps-associated-with-frames-ffmpeg-extracts-from-a-vi
-    - https://superuser.com/questions/1421133/extract-i-frames-to-images-quickly/1421195#1421195
-    - https://github.com/kkroening/ffmpeg-python
-    - https://docs.opencv.org/2.4/doc/tutorials/highgui/video-input-psnr-ssim/video-input-psnr-ssim.html
-    - https://en.wikipedia.org/wiki/Structural_similarity
+Upon realizing that frame extraction was unnecessary, the following changes were implemented:
+- Keeping frames in memory as objects, tracking frame number and timestamp
+- Introducing threading to process video at multiple timestamps for faster average performance ([source](https://vuamitom.github.io/2019/12/13/fast-iterate-through-video-frames.html))
+- Identifying scene transitions and matching them in both videos to reduce false positives
 
-## Still to do
+### Resources and Learning
 
-    - expand codebase to list all possible scene transitions
-    - guess match location and search around it instead of brute forcing through entire video
-    - implement speed fixes https://pyimagesearch.com/2017/02/06/faster-video-file-fps-with-cv2-videocapture-and-opencv/
-    - add in sync via audio: https://stackoverflow.com/questions/25394937/automatically-sync-two-audio-recordings-in-python
-    - test other video frameworks: 
-        - https://github.com/dmlc/decord
-        - https://towardsdatascience.com/lightning-fast-video-reading-in-python-c1438771c4e6
-    - [x] handle mismatched aspect ratios and potention cropping 
-    - target search based on winning frame from consecutive ssim to priority search in taget ssim
-    
-# start brute force search within a window of original timestamp, then expand on each failure and avoid previously searched region
+To gain a deeper understanding of video analysis and tools, several resources were consulted:
+- [Python: Compare Two Images](https://www.pyimagesearch.com/2014/09/15/python-compare-two-images/)
+- [Extract timestamps associated with frames ffmpeg extracts from a video](https://superuser.com/questions/841872/how-do-i-extract-the-timestamps-associated-with-frames-ffmpeg-extracts-from-a-vi)
+- [Extract I-frames to images quickly](https://superuser.com/questions/1421133/extract-i-frames-to-images-quickly/1421195#1421195)
+- [ffmpeg-python](https://github.com/kkroening/ffmpeg-python)
+- [Video Input with OpenCV and similarity measurement](https://docs.opencv.org/2.4/doc/tutorials/highgui/video-input-psnr-ssim/video-input-psnr-ssim.html)
+- [Structural similarity (Wikipedia)](https://en.wikipedia.org/wiki/Structural_similarity)
 
-## Built With
+## Future Enhancements
 
-* [Dropwizard](http://www.dropwizard.io/1.0.2/docs/) - The web framework used
-* [Maven](https://maven.apache.org/) - Dependency Management
-* [ROME](https://rometools.github.io/rome/) - Used to generate RSS Feeds
+- List all possible scene transitions
+- Estimate match location in the first video and search around its timestamp in the second video, rather than brute-forcing through the entire video
+- Implement speed optimizations and evaluate performance improvements, as suggested by [PyImageSearch](https://pyimagesearch.com/2017/02/06/faster-video-file-fps-with-cv2-videocapture-and-opencv/)
+- Incorporate audio sync, as mentioned in [this StackOverflow thread](https://stackoverflow.com/questions/25394937/automatically-sync-two-audio-recordings-in-python)
+- Test alternative video frameworks for speed improvements, such as [Decord](https://github.com/dmlc/decord) and [VideoGear](https://towardsdatascience.com/lightning-fast-video-reading-in-python-c1438771c4e6)
+- [x] Handle mismatched aspect ratios and potential cropping
+- Prioritize search based on winning frame from consecutive SSIM in target SSIM
+- Begin brute-force search within a window of the original timestamp, then expand on each failure while avoiding previously searched regions
 
-## Contributing
 
-Please read [CONTRIBUTING.md](https://gist.github.com/PurpleBooth/b24679402957c63ec426) for details on our code of conduct, and the process for submitting pull requests to us.
-
-## Versioning
-
-We use [SemVer](http://semver.org/) for versioning. For the versions available, see the [tags on this repository](https://github.com/your/project/tags). 
-
-## Authors
-
-* **Billie Thompson** - *Initial work* - [PurpleBooth](https://github.com/PurpleBooth)
-
-See also the list of [contributors](https://github.com/your/project/contributors) who participated in this project.
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
-
-## Acknowledgments
-
-* Hat tip to anyone whose code was used
-* Inspiration
-* etc
-
