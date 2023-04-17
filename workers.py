@@ -6,7 +6,8 @@ import cv2
 from skimage.metrics import structural_similarity as ssim
 
 import timer
-from helpers import transform_frame, view_frames, MAX_SSIM, MIN_SSIM, SSIM_SCORE_THRESHOLD
+from helpers import (MAX_SSIM, MIN_SSIM, SSIM_SCORE_THRESHOLD, transform_frame,
+                     view_frames)
 
 
 def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset=None):
@@ -94,33 +95,36 @@ class Worker_Transition(threading.Thread):
 
         frame_number = fnos[0]
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-        while True:
-            if stop_event.is_set():
-                break
-            _, frame_1 = cap.read()
-            timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
-            success, frame_2 = cap.read()
-            if success:
-                resized_frame_1 = transform_frame(frame_1)
-                resized_frame_2 = transform_frame(frame_2)
-                ssim_score = ssim(resized_frame_1, resized_frame_2)
+        success, frame_1 = cap.read()
+        if success:
+            while True and frame_number <= fnos[-1]:
+                if stop_event.is_set():
+                    break
+                timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+                success, frame_2 = cap.read()
+                if success:
+                    resized_frame_1 = transform_frame(frame_1)
+                    resized_frame_2 = transform_frame(frame_2)
+                    ssim_score = ssim(resized_frame_1, resized_frame_2)
 
-                if ssim_score <= min_ssim:
-                    min_ssim = ssim_score
-                    min_frame = {"Transition Frame SSIM": min_ssim, "Transition Frame Number": frame_number,
-                                 "Transition Frame Timestamp": timestamp, "Transition Frames": [frame_1, frame_2]}
+                    if ssim_score < min_ssim:
+                        min_ssim = ssim_score
+                        min_frame = {"Transition Frame SSIM": min_ssim, "Transition Frame Number": frame_number,
+                                     "Transition Frame Timestamp": timestamp, "Transition Frames": [frame_1, frame_2]}
 
-            # avoid completely black frames
-            if ssim_score < SSIM_SCORE_THRESHOLD and cv2.countNonZero(resized_frame_1) and cv2.countNonZero(resized_frame_2):
-                stop_event.set()
-                result.update(min_frame)
-                worker_queue.put(self)
+                    # avoid completely black frames
+                    if ssim_score < SSIM_SCORE_THRESHOLD and cv2.countNonZero(resized_frame_1) and cv2.countNonZero(resized_frame_2):
+                        stop_event.set()
+                        result.update(min_frame)
+                        worker_queue.put(self)
+                        cap.release()
+                        return
+
+                    frame_number += 1
+                    frame_1 = frame_2
+            if not stop_event.is_set():
+                no_match.append(min_frame)
                 cap.release()
-                return
-            frame_number = cap.get(cv2.CAP_PROP_POS_FRAMES)
-        if not stop_event.is_set():
-            no_match.append(min_frame)
-            cap.release()
 
 
 class Worker_Transition_Match(threading.Thread):
@@ -149,48 +153,49 @@ class Worker_Transition_Match(threading.Thread):
 
         frame_number = fnos[0]
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-        while True and frame_number <= fnos[-1]:
-            if stop_event.is_set():
-                break
-            _, frame_1 = cap.read()
-            timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
-            success, frame_2 = cap.read()
-            if success:
-                if video_source_1.scale:
-                    resized_frame_1 = transform_frame(frame_1, dim=(
-                        video_source_1.width_scaled, video_source_1.height_scaled), cropped=(video_source_1.letterbox, video_source_1.crop_height_mask, video_source_1.crop_width_mask))
-                    resized_frame_2 = transform_frame(frame_2, dim=(
-                        video_source_1.width_scaled, video_source_1.height_scaled), cropped=(video_source_1.letterbox, video_source_1.crop_height_mask, video_source_1.crop_width_mask))
-                else:
-                    resized_frame_1 = transform_frame(
-                        frame_1, cropped=(video_source_1.letterbox, video_source_1.crop_height_mask, video_source_1.crop_width_mask))
-                    resized_frame_2 = transform_frame(
-                        frame_2, cropped=(video_source_1.letterbox, video_source_1.crop_height_mask, video_source_1.crop_width_mask))
+        success, frame_1 = cap.read()
+        if success:
+            while True and frame_number <= fnos[-1]:
+                if stop_event.is_set():
+                    break
+                timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+                success, frame_2 = cap.read()
+                if success:
+                    if video_source_1.scale:
+                        resized_frame_1 = transform_frame(frame_1, dim=(
+                            video_source_1.width_scaled, video_source_1.height_scaled), cropped=(video_source_1.letterbox, video_source_1.crop_height_mask, video_source_1.crop_width_mask))
+                        resized_frame_2 = transform_frame(frame_2, dim=(
+                            video_source_1.width_scaled, video_source_1.height_scaled), cropped=(video_source_1.letterbox, video_source_1.crop_height_mask, video_source_1.crop_width_mask))
+                    else:
+                        resized_frame_1 = transform_frame(
+                            frame_1, cropped=(video_source_1.letterbox, video_source_1.crop_height_mask, video_source_1.crop_width_mask))
+                        resized_frame_2 = transform_frame(
+                            frame_2, cropped=(video_source_1.letterbox, video_source_1.crop_height_mask, video_source_1.crop_width_mask))
 
-                ssim_score_target_frame_1 = ssim(
-                    resized_frame_1, target_frame_1)
-                ssim_score_target_frame_2 = ssim(
-                    resized_frame_2, target_frame_2)
+                    ssim_score_target_frame_1 = ssim(
+                        resized_frame_1, target_frame_1)
+                    ssim_score_target_frame_2 = ssim(
+                        resized_frame_2, target_frame_2)
 
-                if ssim_score_target_frame_1 >= max_ssim:
-                    max_ssim = ssim_score_target_frame_1
-                    max_frame = {"Match Frame SSIM": max_ssim, "Transition Frame Number": frame_number,
-                                 "Transition Frame Timestamp": timestamp, "Transition Frames": [frame_1, frame_2]}
+                    if ssim_score_target_frame_1 > max_ssim:
+                        max_ssim = ssim_score_target_frame_1
+                        max_frame = {"Match Frame SSIM": max_ssim, "Transition Frame Number": frame_number,
+                                     "Transition Frame Timestamp": timestamp, "Transition Frames": [frame_1, frame_2]}
 
-                if ssim_score_target_frame_1 > .9 and ssim_score_target_frame_2 > .9:
-                    stop_event.set()
-                    max_frame["Match Found"] = True
-                    result.update(max_frame)
-                    worker_queue.put(self)
-                    cap.release()
-                    return
+                    if ssim_score_target_frame_1 > .9 and ssim_score_target_frame_2 > .9:
+                        stop_event.set()
+                        max_frame["Match Found"] = True
+                        result.update(max_frame)
+                        worker_queue.put(self)
+                        cap.release()
+                        return
+                    frame_number += 1
+                    frame_1 = frame_2
 
-            frame_number = cap.get(cv2.CAP_PROP_POS_FRAMES)
-
-        if not stop_event.is_set():
-            max_frame["Match Found"] = False
-            no_match.append(max_frame)
-            cap.release()
+            if not stop_event.is_set():
+                max_frame["Match Found"] = False
+                no_match.append(max_frame)
+                cap.release()
 
 
 class Worker_Frame_Match(threading.Thread):
@@ -227,14 +232,13 @@ class Worker_Frame_Match(threading.Thread):
                                  ssim_score_target_frame, frame_number, timestamp]
                     max_ssim = ssim_score_target_frame
 
-                frame_number = cap.get(cv2.CAP_PROP_POS_FRAMES)
-
                 if ssim_score_target_frame > .9:
                     stop_event.set()
                     worker_queue.put(self)
                     result.extend(max_frame)
                     cap.release()
                     return
+                frame_number += 1
         if not stop_event.is_set():
             no_match.append(max_frame)
             cap.release()
@@ -296,8 +300,12 @@ def threaded_ssim(video_source_1, worker, closest_match, video_source_2=None, fr
             pass
         else:
             worker_queue.put('No match!')
-            closest_frame = closest_match(
-                no_match, key=lambda x: x["Match Frame SSIM"])
+            if closest_match is max:
+                closest_frame = closest_match(
+                    no_match, key=lambda x: x["Match Frame SSIM"])
+            elif closest_match is min:
+                closest_frame = closest_match(
+                    no_match, key=lambda x: x["Transition Frame SSIM"])
             result.update(closest_frame)
             break
 

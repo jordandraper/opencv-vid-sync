@@ -5,7 +5,9 @@ import cv2
 import numpy as np
 
 import workers
-from helpers import frame_is_letterboxed,crop_frame,get_frame_aspect_ratio,view_frames
+from helpers import (crop_frame, frame_is_letterboxed, get_fps_cv_native,
+                     get_frame_aspect_ratio, view_frames)
+
 
 def print_find_result(vid_1, vid_2):
     if vid_1.transition_frames_ssim is None:
@@ -68,6 +70,17 @@ def print_find_result(vid_1, vid_2):
                 f'No frame match found between {os.path.split(reference_vid.file)[1]} and {os.path.split(to_sync_vid.file)[1]}')
             print(
                 f'The closest match has SSIM {to_sync_vid.match_frames_ssim} between frames.\n')
+            view = input(
+                f"Would you like to manually view?")
+            if view.lower() == "yes" or view.lower() == 'y':
+                view_frames(
+                    reference_vid.transition_frames[0], to_sync_vid.transition_frames[0])
+                manual_inspect = input(f"Are the frames in sync?")
+                if manual_inspect.lower() == "yes" or manual_inspect.lower() == 'y':
+                    reference_vid.match_found = True
+                    to_sync_vid.match_found = True
+                    print_find_result(vid_1, vid_2)
+
             csv_writer.writerow(
                 [reference_vid.file, to_sync_vid.file, reference_vid.match_found])
 
@@ -91,6 +104,7 @@ class VideoSource():
         self.match_found = None
         self.reference_vid = None
         self.to_sync_vid = None
+        self.fps = None
 
     def set_vid_info(self):
         """Get first non-black frame and check for letterboxing"""
@@ -109,6 +123,7 @@ class VideoSource():
         self.non_black_frame = v1f
         self.letterbox, self.crop_height_mask, self.crop_width_mask = frame_is_letterboxed(
             v1f)
+        self.fps = get_fps_cv_native(self.file)
 
 
 def compare_aspect_dim(vid_1, vid_2):
@@ -153,6 +168,7 @@ def compare_aspect_dim(vid_1, vid_2):
     vid_2.width_scaled = width_scaled
     vid_2.height_scaled = height_scaled
 
+
 def find(file_1, file_2):
     vid_1 = VideoSource(file_1)
     vid_2 = VideoSource(file_2)
@@ -168,16 +184,14 @@ def find(file_1, file_2):
     else:
         reference_vid = vid_1
         to_sync_vid = vid_2
-
     workers.threaded_ssim(reference_vid,
-                          workers.Worker_Transition, min, frame_window=[0, 100])
-
+                          workers.Worker_Transition, min, frame_window=[0, int(10*reference_vid.fps)])
     quick_match = workers.quick_match_check(
         reference_vid, to_sync_vid)
 
     if not quick_match:
         workers.threaded_ssim(
-            to_sync_vid, workers.Worker_Transition_Match, max, video_source_2=reference_vid, frame_window=[0, 300])
+            to_sync_vid, workers.Worker_Transition_Match, max, video_source_2=reference_vid, frame_window=[0, int(30*reference_vid.fps)])
         print_find_result(vid_1, vid_2)
     return vid_1, vid_2
 
@@ -191,9 +205,9 @@ def batch_find(dir_1, dir_2, view=None):
                     if not f.startswith(".")), key=str.lower)
 
     for i, (file_1, file_2) in enumerate(zip(list_1, list_2)):
-        vid_1,vid_2 = find(
+        vid_1, vid_2 = find(
             file_1, file_2)
 
         if view:
-            view_frames(vid_1.transition_frames[0],vid_2.transition_frames[0])
-            view_frames(vid_1.transition_frames[1],vid_2.transition_frames[1])
+            view_frames(vid_1.transition_frames[0], vid_2.transition_frames[0])
+            view_frames(vid_1.transition_frames[1], vid_2.transition_frames[1])

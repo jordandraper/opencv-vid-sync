@@ -41,6 +41,13 @@ def get_fps(file):
     return int(fps_num), int(fps_den)
 
 
+def get_fps_cv_native(video_path):
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    cap.release()
+    return fps
+
+
 def view_frame(frame):
     while True:
         cv2.imshow('Frame', frame)
