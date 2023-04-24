@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import workers
 from helpers import (crop_frame, frame_is_letterboxed, get_fps_cv_native,
-                     get_frame_aspect_ratio, view_frames)
+                     get_frame_aspect_ratio, view_frames, vfr_cfr_check)
 
 
 def print_find_result(vid_1, vid_2):
@@ -26,41 +26,19 @@ def print_find_result(vid_1, vid_2):
     with open(os.path.join(os.path.split(vid_1.file)[0], 'frame_sync.csv'), mode='a') as csvfile:
         csv_writer = csv.writer(csvfile, delimiter=',',
                                 quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        # print(
-        #     f'The local minimum SSIM between consecutive frames of {reference_vid.name} is {reference_vid.transition_frames_ssim}')
+        timestamp_difference = reference_vid.transition_frames_timestamp - \
+            to_sync_vid.transition_frames_timestamp
         if reference_vid.match_found:
             print(
                 f'\nMatch found between {reference_vid.name} and {to_sync_vid.name}!')
             print(
                 f'The closest match has SSIM {to_sync_vid.match_frames_ssim} between frames.\n')
-
-            timestamp_difference = reference_vid.transition_frames_timestamp - \
-                to_sync_vid.transition_frames_timestamp
-            if timestamp_difference > 0:
-                # print(
-                #     f'{reference_vid.name} is out of sync with {to_sync_vid.name}')
-                print(
-                    f'{reference_vid.name} timestamp is {reference_vid.transition_frames_timestamp}ms.')
-                print(
-                    f'{to_sync_vid.name} timestamp is {to_sync_vid.transition_frames_timestamp}ms.')
-                print(
-                    f'{to_sync_vid.name} needs to be delayed {timestamp_difference} milliseconds.\n')
-            elif timestamp_difference < 0:
-                # print(
-                #     f'{reference_vid.name} is out of sync with {to_sync_vid.name}')
-                print(
-                    f'{reference_vid.name} timestamp is {reference_vid.transition_frames_timestamp}ms.')
-                print(
-                    f'{to_sync_vid.name} timestamp is {to_sync_vid.transition_frames_timestamp}ms.')
-                print(
-                    f'{reference_vid.name} needs to be delayed {-1*timestamp_difference} milliseconds.\n')
-            # else:
-                # print(
-                #     f'{reference_vid.name} is in sync with {to_sync_vid.name}\n')
-                # print(
-                #     f'{reference_vid.file} timestamp is {reference_vid.transition_frames_timestamp}')
-                # print(
-                #     f'{to_sync_vid.file} timestamp is {to_sync_vid.transition_frames_timestamp}')
+            print(
+                f'{reference_vid.name} timestamp is {reference_vid.transition_frames_timestamp}ms.')
+            print(
+                f'{to_sync_vid.name} timestamp is {to_sync_vid.transition_frames_timestamp}ms.')
+            print(
+                f'{to_sync_vid.name} needs to be delayed {timestamp_difference} milliseconds.\n')
 
             csv_writer.writerow(
                 [reference_vid.file, to_sync_vid.file, reference_vid.match_found, reference_vid.transition_frames_timestamp, to_sync_vid.transition_frames_timestamp, timestamp_difference])
@@ -78,10 +56,11 @@ def print_find_result(vid_1, vid_2):
                 if manual_inspect.lower() == "yes" or manual_inspect.lower() == 'y':
                     reference_vid.match_found = True
                     to_sync_vid.match_found = True
-                    print_find_result(vid_1, vid_2)
-
-            csv_writer.writerow(
-                [reference_vid.file, to_sync_vid.file, reference_vid.match_found])
+                    csv_writer.writerow(
+                        [reference_vid.file, to_sync_vid.file, reference_vid.match_found, reference_vid.transition_frames_timestamp, to_sync_vid.transition_frames_timestamp, timestamp_difference])
+                else:
+                    csv_writer.writerow(
+                        [reference_vid.file, to_sync_vid.file, reference_vid.match_found])
 
 
 class VideoSource():
@@ -105,6 +84,7 @@ class VideoSource():
         self.to_sync_vid = None
         self.fps = None
         self.name = os.path.split(file)[1]
+        self.framerate_type = None
 
     def set_vid_info(self):
         """Get first non-black frame and check for letterboxing"""
@@ -124,6 +104,7 @@ class VideoSource():
         self.letterbox, self.crop_height_mask, self.crop_width_mask = frame_is_letterboxed(
             v1f)
         self.fps = get_fps_cv_native(self.file)
+        self.framerate_type = vfr_cfr_check(self.file)
 
 
 def compare_aspect_dim(vid_1, vid_2):
@@ -169,12 +150,25 @@ def compare_aspect_dim(vid_1, vid_2):
     vid_2.height_scaled = height_scaled
 
 
-def find(file_1, file_2):
+def find(file_1, file_2, view=None, save_frames=None):
+    if view is None:
+        view = False
+    if save_frames is None:
+        save_frames = False
+
     vid_1 = VideoSource(file_1)
     vid_2 = VideoSource(file_2)
 
     vid_1.set_vid_info()
     vid_2.set_vid_info()
+
+    if vid_1.framerate_type == "Variable" or vid_2.framerate_type == "Variable":
+        print("Input video has variable framerate. Sync not possible.")
+        return
+    if vid_1.fps != vid_2.fps:
+        print(
+            "Input videos have different framerates. Sync not possible without re-encode.")
+        return
 
     compare_aspect_dim(vid_1, vid_2)
 
@@ -185,29 +179,47 @@ def find(file_1, file_2):
         reference_vid = vid_1
         to_sync_vid = vid_2
     workers.threaded_ssim(reference_vid,
-                          workers.Worker_Transition, min, frame_window=[0, int(10*reference_vid.fps)])
+                          workers.Worker_Transition, min, frame_window=[0, int(20*reference_vid.fps)])
+
     quick_match = workers.quick_match_check(
         reference_vid, to_sync_vid)
-
     if not quick_match:
         workers.threaded_ssim(
-            to_sync_vid, workers.Worker_Transition_Match, max, video_source_2=reference_vid, frame_window=[0, int(30*reference_vid.fps)])
-        print_find_result(vid_1, vid_2)
+            to_sync_vid, workers.Worker_Transition_Match, max, video_source_2=reference_vid, frame_window=[0, int(60*reference_vid.fps)])
+
+    if view:
+        view_frames(
+            reference_vid.transition_frames[0], to_sync_vid.transition_frames[0])
+        view_frames(
+            reference_vid.transition_frames[1], to_sync_vid.transition_frames[1])
+    if save_frames:
+        cv2.imwrite(os.path.join(os.path.split(reference_vid.file)[
+                    0], reference_vid.name+'.reference_0.jpg'), reference_vid.transition_frames[0])
+        cv2.imwrite(os.path.join(os.path.split(reference_vid.file)[
+                    0], reference_vid.name+'.reference_1.jpg'), reference_vid.transition_frames[1])
+        cv2.imwrite(os.path.join(os.path.split(to_sync_vid.file)[
+                    0], to_sync_vid.name+'.to_sync_0.jpg'), to_sync_vid.transition_frames[0])
+        cv2.imwrite(os.path.join(os.path.split(to_sync_vid.file)[
+                    0], to_sync_vid.name+'.to_sync_1.jpg'), to_sync_vid.transition_frames[1])
+    print_find_result(vid_1, vid_2)
     return vid_1, vid_2
 
 
-def batch_find(dir_1, dir_2, view=None):
+def batch_find(dir_1, dir_2, view=None, save_frames=None):
     if view is None:
         view = False
-    list_1 = sorted((f for f in os.listdir(dir_1)
+    list_1 = sorted((os.path.join(dir_1, f) for f in os.listdir(dir_1)
                     if not f.startswith(".")), key=str.lower)
-    list_2 = sorted((f for f in os.listdir(dir_2)
+    list_2 = sorted((os.path.join(dir_2, f) for f in os.listdir(dir_2)
                     if not f.startswith(".")), key=str.lower)
-
     for i, (file_1, file_2) in enumerate(zip(list_1, list_2)):
         vid_1, vid_2 = find(
-            file_1, file_2)
+            file_1, file_2, view, save_frames)
 
-        if view:
-            view_frames(vid_1.transition_frames[0], vid_2.transition_frames[0])
-            view_frames(vid_1.transition_frames[1], vid_2.transition_frames[1])
+
+# def main():
+    # batch_find("","", save_frames=True)
+    # find("","")
+
+# if __name__ == "__main__":
+    # main()

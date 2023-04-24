@@ -1,3 +1,4 @@
+import math
 from fractions import Fraction
 
 import cv2
@@ -9,6 +10,15 @@ COMMON_FPS = 24000/1001
 MAX_SSIM = 1
 MIN_SSIM = -1
 SSIM_SCORE_THRESHOLD = .2
+
+
+def consecutive_ssim_metric(frame_1, frame_2):
+    return math.sqrt(abs(frame_1*frame_2))
+
+
+def frame_colored(frame):
+    # arbitrary cutoff, 255 would be completely white frame
+    return cv2.countNonZero(frame) and np.mean(frame) < 230
 
 
 def frame_is_letterboxed(img, th=25):
@@ -48,19 +58,31 @@ def get_fps_cv_native(video_path):
     return fps
 
 
-def view_frame(frame):
-    while True:
-        cv2.imshow('Frame', frame)
-        if cv2.waitKey(1) == ord('q'):
-            break
+def vfr_cfr_check(video_path):
+    timestamps = []
+    cap = cv2.VideoCapture(video_path)
+    for i in range(10):
+        success, frame = cap.read()
+        timestamp = round(cap.get(cv2.CAP_PROP_POS_MSEC))
+        timestamps.append(timestamp)
+    differences = [timestamps[i]-timestamps[i-1]
+                   for i in range(1, len(timestamps))]
+    cap.release()
+    if all(x == differences[0] for x in differences):
+        return "Constant"
+    else:
+        return "Variable"
 
 
-def view_frames(frame_1, frame_2):
-    while True:
-        cv2.imshow('Frame 1', frame_1)
-        cv2.imshow('Frame 2', frame_2)
-        if cv2.waitKey(1) == ord('q'):
-            break
+def view_frames(*args):
+    # Solution: https://stackoverflow.com/questions/52682261/why-cv2-destroyallwindows-does-not-work-on-mac
+    for i, arg in enumerate(args):
+        cv2.imshow(f'Frame {i}', arg)
+    cv2.startWindowThread()
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    for i in range(2):
+        cv2.waitKey(1)
 
 
 def resize_frame(frame, width_scaling_factor=None, height_scaling_factor=None, dim=None):

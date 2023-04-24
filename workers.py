@@ -3,19 +3,23 @@ import queue
 import threading
 
 import cv2
-import timer
-from helpers import (MAX_SSIM, MIN_SSIM, SSIM_SCORE_THRESHOLD, transform_frame,
-                     view_frames)
 from skimage.metrics import structural_similarity as ssim
 
+import timer
+from helpers import (MAX_SSIM, MIN_SSIM, SSIM_SCORE_THRESHOLD,
+                     consecutive_ssim_metric, frame_colored, transform_frame,
+                     view_frames)
 
-def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset=None):
+
+def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset=None, interactive=None):
     quick_match = False
+    if interactive is None:
+        interactive = False
 
     target_frame_1, target_frame_2 = reference_vid.transition_frames
-    target_frame_1 = transform_frame(target_frame_1, dim=(
+    resized_target_frame_1 = transform_frame(target_frame_1, dim=(
         reference_vid.width_scaled, reference_vid.height_scaled), cropped=(reference_vid.letterbox, reference_vid.crop_height_mask, reference_vid.crop_width_mask))
-    target_frame_2 = transform_frame(target_frame_2, dim=(
+    resized_target_frame_2 = transform_frame(target_frame_2, dim=(
         reference_vid.width_scaled, reference_vid.height_scaled), cropped=(reference_vid.letterbox, reference_vid.crop_height_mask, reference_vid.crop_width_mask))
 
     cap = cv2.VideoCapture(to_sync_vid.file)
@@ -51,25 +55,29 @@ def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset
             resized_frame_2 = transform_frame(
                 frame_2, cropped=(to_sync_vid.letterbox, to_sync_vid.crop_height_mask, to_sync_vid.crop_width_mask))
         ssim_score_target_frame_1 = ssim(
-            resized_frame_1, target_frame_1)
+            resized_frame_1, resized_target_frame_1)
         ssim_score_target_frame_2 = ssim(
-            resized_frame_2, target_frame_2)
-        if ssim_score_target_frame_1 > .9 and ssim_score_target_frame_2 > .9:
+            resized_frame_2, resized_target_frame_2)
+        double_ssim_metric = consecutive_ssim_metric(
+            ssim_score_target_frame_1, ssim_score_target_frame_2)
+        if double_ssim_metric > .85:
             print(positive_output)
             quick_match = True
             reference_vid.match_found = True
             to_sync_vid.match_found = True
         else:
             print(negative_output)
-            view = input(
-                f"The quick match SSIM is {ssim_score_target_frame_1}. Would you like to manually view? ")
-            if view.lower() == "yes" or view.lower() == 'y':
-                view_frames(resized_frame_1, target_frame_1)
-                manual_inspect = input(f"Are the frames in sync? ")
-                if manual_inspect.lower() == "yes" or manual_inspect.lower() == 'y':
-                    quick_match = True
-                    reference_vid.match_found = True
-                    to_sync_vid.match_found = True
+            if interactive:
+                view = input(
+                    f"The quick match SSIM is {double_ssim_metric}. Would you like to manually view? ")
+                if view.lower() == "yes" or view.lower() == 'y':
+                    view_frames(target_frame_1, frame_1)
+                    view_frames(target_frame_2, frame_2)
+                    manual_inspect = input(f"Are the frames in sync? ")
+                    if manual_inspect.lower() == "yes" or manual_inspect.lower() == 'y':
+                        quick_match = True
+                        reference_vid.match_found = True
+                        to_sync_vid.match_found = True
     return quick_match
 
 
@@ -111,8 +119,8 @@ class Worker_Transition(threading.Thread):
                         min_frame = {"Transition Frame SSIM": min_ssim, "Transition Frame Number": frame_number,
                                      "Transition Frame Timestamp": timestamp, "Transition Frames": [frame_1, frame_2]}
 
-                    # avoid completely black frames
-                    if ssim_score < SSIM_SCORE_THRESHOLD and cv2.countNonZero(resized_frame_1) and cv2.countNonZero(resized_frame_2):
+                    # avoid mostly white & black frames
+                    if ssim_score < SSIM_SCORE_THRESHOLD and frame_colored(resized_frame_1) and frame_colored(resized_frame_2):
                         stop_event.set()
                         result.update(min_frame)
                         worker_queue.put(self)
@@ -176,12 +184,14 @@ class Worker_Transition_Match(threading.Thread):
                     ssim_score_target_frame_2 = ssim(
                         resized_frame_2, target_frame_2)
 
-                    if ssim_score_target_frame_1 > max_ssim:
-                        max_ssim = ssim_score_target_frame_1
+                    double_ssim_metric = consecutive_ssim_metric(
+                        ssim_score_target_frame_1, ssim_score_target_frame_2)
+                    if double_ssim_metric > max_ssim:
+                        max_ssim = double_ssim_metric
                         max_frame = {"Match Frame SSIM": max_ssim, "Transition Frame Number": frame_number,
                                      "Transition Frame Timestamp": timestamp, "Transition Frames": [frame_1, frame_2]}
 
-                    if ssim_score_target_frame_1 > .9 and ssim_score_target_frame_2 > .9:
+                    if max_ssim > .85:
                         stop_event.set()
                         max_frame["Match Found"] = True
                         result.update(max_frame)
