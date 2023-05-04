@@ -1,29 +1,30 @@
 import csv
 import os
+import sys
 
 import cv2
 import numpy as np
 import workers
-from helpers import (crop_frame, frame_is_letterboxed, get_fps_cv_native,
-                     get_frame_aspect_ratio, view_frames, vfr_cfr_check)
+from helpers import (crop_frame, frame_is_letterboxed,
+                     get_fps_cv_native, get_frame_aspect_ratio, view_frames)
 
 
 def print_find_result(vid_1, vid_2):
-    if vid_1.transition_frames_ssim is None:
-        reference_vid = vid_2
-        to_sync_vid = vid_1
-    else:
+    if vid_1.reference_vid:
         reference_vid = vid_1
         to_sync_vid = vid_2
+    else:
+        reference_vid = vid_2
+        to_sync_vid = vid_1
 
-    if not os.path.isfile(os.path.join(os.path.split(vid_1.file)[0], 'frame_sync.csv')):
-        with open(os.path.join(os.path.split(vid_2.file)[0], 'frame_sync.csv'), mode='w') as csvfile:
+    if not os.path.isfile(os.path.join(os.path.dirname(sys.argv[0]), "results", 'frame_sync.csv')):
+        with open(os.path.join(os.path.dirname(sys.argv[0]), "results", 'frame_sync.csv'), mode='w') as csvfile:
             csv_writer = csv.writer(
                 csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             csv_writer.writerow(
                 ["File 1", "File 2", "Match Found", "V1F1 Timestamp", "V2F1 Timestamp", "Delay"])
 
-    with open(os.path.join(os.path.split(vid_1.file)[0], 'frame_sync.csv'), mode='a') as csvfile:
+    with open(os.path.join(os.path.dirname(sys.argv[0]), "results", 'frame_sync.csv'), mode='a') as csvfile:
         csv_writer = csv.writer(csvfile, delimiter=',',
                                 quotechar='"', quoting=csv.QUOTE_MINIMAL)
         timestamp_difference = reference_vid.transition_frames_timestamp - \
@@ -56,6 +57,7 @@ def print_find_result(vid_1, vid_2):
                 if manual_inspect.lower() == "yes" or manual_inspect.lower() == 'y':
                     reference_vid.match_found = True
                     to_sync_vid.match_found = True
+
                     csv_writer.writerow(
                         [reference_vid.file, to_sync_vid.file, reference_vid.match_found, reference_vid.transition_frames_timestamp, to_sync_vid.transition_frames_timestamp, timestamp_difference])
                 else:
@@ -84,7 +86,8 @@ class VideoSource():
         self.to_sync_vid = None
         self.fps = None
         self.name = os.path.split(file)[1]
-        self.framerate_type = None
+        # self.framerate_type = None
+        # self.frame_difference_sample = None
 
     def set_vid_info(self):
         """Get first non-black frame and check for letterboxing"""
@@ -103,8 +106,9 @@ class VideoSource():
         self.non_black_frame = v1f
         self.letterbox, self.crop_height_mask, self.crop_width_mask = frame_is_letterboxed(
             v1f)
-        self.fps = get_fps_cv_native(self.file)
-        self.framerate_type = vfr_cfr_check(self.file)
+        # fps can be tricky e.g. 24000/1001 vs 23976/1000 vs 2997/125. Both round to 23.976
+        self.fps = round(get_fps_cv_native(self.file), 3)
+        # self.frame_difference_sample, self.framerate_type = vfr_cfr_check(self.file)
 
 
 def compare_aspect_dim(vid_1, vid_2):
@@ -162,12 +166,21 @@ def find(file_1, file_2, view=None, save_frames=None):
     vid_1.set_vid_info()
     vid_2.set_vid_info()
 
-    if vid_1.framerate_type == "Variable" or vid_2.framerate_type == "Variable":
-        print("Input video has variable framerate. Sync not possible.")
-        return
+    # if vid_1.framerate_type == "Variable" or vid_2.framerate_type == "Variable":
+    #     print("Input video has variable framerate. Sync might not possible.")
+    #     sample = input("Would you like to compare a sample of frame timestamps? ")
+    #     if sample.lower() == "yes" or sample.lower() == 'y':
+    #         if vid_1.frame_difference_sample==vid_2.frame_difference_sample:
+    #             print("Differences match, attempting sync!")
+    #         else:
+    #             print("Differences do not match, abandoning sync!")
+    #             return
+    #     else:
+    #         return
+
     if vid_1.fps != vid_2.fps:
         print(
-            "Input videos have different framerates. Sync not possible without re-encode.")
+            f"Input videos have different framerates of {vid_1.fps} and {vid_2.fps}. Sync not possible without re-encode.")
         return
 
     compare_aspect_dim(vid_1, vid_2)
@@ -187,21 +200,22 @@ def find(file_1, file_2, view=None, save_frames=None):
         workers.threaded_ssim(
             to_sync_vid, workers.Worker_Transition_Match, max, video_source_2=reference_vid, frame_window=[0, int(60*reference_vid.fps)])
 
+    print_find_result(vid_1, vid_2)
     if view:
         view_frames(
             reference_vid.transition_frames[0], to_sync_vid.transition_frames[0])
         view_frames(
             reference_vid.transition_frames[1], to_sync_vid.transition_frames[1])
     if save_frames:
-        cv2.imwrite(os.path.join(os.path.split(reference_vid.file)[
-                    0], reference_vid.name+'.reference_0.jpg'), reference_vid.transition_frames[0])
-        cv2.imwrite(os.path.join(os.path.split(reference_vid.file)[
-                    0], reference_vid.name+'.reference_1.jpg'), reference_vid.transition_frames[1])
-        cv2.imwrite(os.path.join(os.path.split(to_sync_vid.file)[
-                    0], to_sync_vid.name+'.to_sync_0.jpg'), to_sync_vid.transition_frames[0])
-        cv2.imwrite(os.path.join(os.path.split(to_sync_vid.file)[
-                    0], to_sync_vid.name+'.to_sync_1.jpg'), to_sync_vid.transition_frames[1])
-    print_find_result(vid_1, vid_2)
+
+        cv2.imwrite(os.path.join(os.path.dirname(
+            sys.argv[0]), "results", reference_vid.name+'.reference_0.jpg'), reference_vid.transition_frames[0])
+        cv2.imwrite(os.path.join(os.path.dirname(
+            sys.argv[0]), "results", reference_vid.name+'.reference_1.jpg'), reference_vid.transition_frames[1])
+        cv2.imwrite(os.path.join(os.path.dirname(
+            sys.argv[0]), "results", to_sync_vid.name+'.to_sync_0.jpg'), to_sync_vid.transition_frames[0])
+        cv2.imwrite(os.path.join(os.path.dirname(
+            sys.argv[0]), "results", to_sync_vid.name+'.to_sync_1.jpg'), to_sync_vid.transition_frames[1])
     return vid_1, vid_2
 
 
@@ -212,14 +226,18 @@ def batch_find(dir_1, dir_2, view=None, save_frames=None):
                     if not f.startswith(".")), key=str.lower)
     list_2 = sorted((os.path.join(dir_2, f) for f in os.listdir(dir_2)
                     if not f.startswith(".")), key=str.lower)
+
     for i, (file_1, file_2) in enumerate(zip(list_1, list_2)):
         vid_1, vid_2 = find(
             file_1, file_2, view, save_frames)
 
 
-# def main():
-    # batch_find("","", save_frames=True)
+def main():
+    os.makedirs(os.path.join(os.path.dirname(
+        sys.argv[0]), "results"), exist_ok=True)
+    # batch_find("", "",save_frames=True)
     # find("","")
 
-# if __name__ == "__main__":
-    # main()
+
+if __name__ == "__main__":
+    main()

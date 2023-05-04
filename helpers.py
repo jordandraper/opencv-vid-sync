@@ -59,6 +59,12 @@ def get_fps_cv_native(video_path):
 
 
 def vfr_cfr_check(video_path):
+    # Need to rethink this...
+    # https://forum.videohelp.com/threads/379834-constant-variable-frame-rate-confusion-again
+    # https://sourceforge.net/p/mediainfo/discussion/297610/thread/b2a2708d/
+    # https://superuser.com/questions/1487401/how-can-i-tell-if-a-video-has-a-variable-frame-rate
+    # 24000/1001 fps results in 41,42 ms differences between frames
+    # might be worth just checking with something like MediaInfo
     timestamps = []
     cap = cv2.VideoCapture(video_path)
     for i in range(10):
@@ -68,10 +74,11 @@ def vfr_cfr_check(video_path):
     differences = [timestamps[i]-timestamps[i-1]
                    for i in range(1, len(timestamps))]
     cap.release()
+
     if all(x == differences[0] for x in differences):
-        return "Constant"
+        return differences, "Constant"
     else:
-        return "Variable"
+        return differences, "Variable"
 
 
 def view_frames(*args):

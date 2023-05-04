@@ -3,12 +3,10 @@ import queue
 import threading
 
 import cv2
-from skimage.metrics import structural_similarity as ssim
-
-import timer
 from helpers import (MAX_SSIM, MIN_SSIM, SSIM_SCORE_THRESHOLD,
                      consecutive_ssim_metric, frame_colored, transform_frame,
                      view_frames)
+from skimage.metrics import structural_similarity as ssim
 
 
 def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset=None, interactive=None):
@@ -41,7 +39,10 @@ def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset
         cap.set(cv2.CAP_PROP_POS_MSEC, reference_vid.transition_frames_timestamp)
         positive_output = f'{reference_vid.name} is in sync with {to_sync_vid.name}!'
         negative_output = f'{reference_vid.name} is out of sync with {to_sync_vid.name}!'
+    frame_number = cap.get(cv2.CAP_PROP_POS_FRAMES)
     _, frame_1 = cap.read()
+    timestamp = round(cap.get(cv2.CAP_PROP_POS_MSEC))
+
     success, frame_2 = cap.read()
     if success:
         if to_sync_vid.scale:
@@ -65,9 +66,14 @@ def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset
             quick_match = True
             reference_vid.match_found = True
             to_sync_vid.match_found = True
+
+            to_sync_vid.transition_frames = [frame_1, frame_2]
+            to_sync_vid.transition_frames_timestamp = timestamp
+            to_sync_vid.transition_frames_number = frame_number
+            to_sync_vid.match_frames_ssim = double_ssim_metric
         else:
             print(negative_output)
-            if interactive:
+            if interactive and double_ssim_metric > .5:
                 view = input(
                     f"The quick match SSIM is {double_ssim_metric}. Would you like to manually view? ")
                 if view.lower() == "yes" or view.lower() == 'y':
@@ -78,6 +84,11 @@ def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset
                         quick_match = True
                         reference_vid.match_found = True
                         to_sync_vid.match_found = True
+
+                        to_sync_vid.transition_frames = [frame_1, frame_2]
+                        to_sync_vid.transition_frames_timestamp = timestamp
+                        to_sync_vid.transition_frames_number = frame_number
+                        to_sync_vid.match_frames_ssim = double_ssim_metric
     return quick_match
 
 
@@ -261,8 +272,9 @@ def threaded_ssim(video_source_1, worker, closest_match, video_source_2=None, fr
     cap = cv2.VideoCapture(video_source_1.file)
 
     if frame_window is None:
+        # fast but possibly innacurate, if getting exact total frame count use manual counting method
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fnos = list(range(total_frames))
+        fnos = list(range(total_frames))  # Frames are 0 indexed
     else:
         total_frames = frame_window[1]-frame_window[0]+1
         fnos = list(range(frame_window[0], frame_window[1]+1))
