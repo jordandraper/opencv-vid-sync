@@ -130,7 +130,7 @@ class Worker_Transition(threading.Thread):
                         min_frame = {"Transition Frame SSIM": min_ssim, "Transition Frame Number": frame_number,
                                      "Transition Frame Timestamp": timestamp, "Transition Frames": [frame_1, frame_2]}
 
-                    # avoid mostly white & black frames
+                    # avoid mostly white & black consecutive frame transition
                     if ssim_score < SSIM_SCORE_THRESHOLD and frame_colored(resized_frame_1) and frame_colored(resized_frame_2):
                         stop_event.set()
                         result.update(min_frame)

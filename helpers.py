@@ -17,8 +17,8 @@ def consecutive_ssim_metric(frame_1, frame_2):
 
 
 def frame_colored(frame):
-    # arbitrary cutoff, 255 would be completely white frame
-    return cv2.countNonZero(frame) and np.mean(frame) < 230
+    # Goal is to avoid mostly all black or white frames. Arbitrary cutoff: 0 is black, 255 is white
+    return 30 < np.mean(frame) < 230
 
 
 def frame_is_letterboxed(img, th=25):
