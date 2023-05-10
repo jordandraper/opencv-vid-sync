@@ -2,6 +2,8 @@
 
 Harness the power of the OpenCV framework to seamlessly synchronize two videos by determining the necessary delay. Experience fast performance with multi-threading, as the video files are intelligently divided into chunks for optimized processing. Unleash the full potential of your video editing with this cutting-edge solution!
 
+![match_found](https://github.com/jordandraper/opencv-vid-sync/assets/6191881/80715b01-2255-4a56-af94-d6bd829e298c)
+
 
 https://github.com/jordandraper/opencv-vid-sync/assets/6191881/8a271865-4652-44d9-bfb2-30196445c4aa
 
