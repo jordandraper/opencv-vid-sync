@@ -3,9 +3,9 @@ import queue
 import threading
 
 import cv2
-from helpers import (MAX_SSIM, MIN_SSIM, SSIM_SCORE_THRESHOLD,
+from helpers import (MAX_SSIM, MIN_SSIM, SSIM_SCORE_THRESHOLD, concat_frames,
                      consecutive_ssim_metric, frame_colored, transform_frame,
-                     view_frames)
+                     view_frame)
 from skimage.metrics import structural_similarity as ssim
 
 
@@ -77,8 +77,12 @@ def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset
                 view = input(
                     f"The quick match SSIM is {double_ssim_metric}. Would you like to manually view? ")
                 if view.lower() == "yes" or view.lower() == 'y':
-                    view_frames(target_frame_1, frame_1)
-                    view_frames(target_frame_2, frame_2)
+                    match_1 = concat_frames(
+                        (reference_vid.transition_frames[0], to_sync_vid.transition_frames[0]))
+                    match_2 = concat_frames(
+                        (reference_vid.transition_frames[1], to_sync_vid.transition_frames[1]))
+                    display_frame = concat_frames([match_1, match_2], axis=0)
+                    view_frame(display_frame)
                     manual_inspect = input(f"Are the frames in sync? ")
                     if manual_inspect.lower() == "yes" or manual_inspect.lower() == 'y':
                         quick_match = True

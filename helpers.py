@@ -81,10 +81,35 @@ def vfr_cfr_check(video_path):
         return differences, "Variable"
 
 
-def view_frames(*args):
+def concat_frames(frames, axis=None):
+    """
+    Parameters: axis: int, optional
+                    The axis along which the arrays will be joined. If axis is None, arrays are flattened before use. Default is 1.
+    """
+    if axis is None:
+        axis = 1
+    shapes = list(map(lambda x: x.shape, frames))
+    max_height = max(map(lambda x: x[0], shapes))
+    max_width = max(map(lambda x: x[1], shapes))
+    resized_frames = []
+    for frame in frames:
+        height, width, _ = frame.shape
+
+        height_pad_1, height_pad_2 = [int((max_height - height)/2), int((max_height - height)/2)] if (max_height -
+                                                                                                      height) % 2 == 0 else [round((max_height - height)/2), round((max_height - height)/2)+1]
+
+        width_pad_1, width_pad_2 = [int((max_width - width)/2), int((max_width - width)/2)] if (max_width -
+                                                                                                width) % 2 == 0 else [round((max_width - width)/2), round((max_width - width)/2)+1]
+
+        resized_frames.append(np.pad(frame, ((height_pad_1, height_pad_2), (width_pad_1, width_pad_2), (0, 0)),
+                                     'constant', constant_values=0))
+    concat = np.concatenate(resized_frames, axis=axis)
+    return concat
+
+
+def view_frame(frame):
     # Solution: https://stackoverflow.com/questions/52682261/why-cv2-destroyallwindows-does-not-work-on-mac
-    for i, arg in enumerate(args):
-        cv2.imshow(f'Frame {i}', arg)
+    cv2.imshow('Frame Match', frame)
     cv2.startWindowThread()
     cv2.waitKey(0)
     cv2.destroyAllWindows()
@@ -161,5 +186,5 @@ def find_transition(video_path, view=None):
         cap.set(cv2.CAP_PROP_POS_FRAMES, min_index)
         _, frame_1 = cap.read()
         _, frame_2 = cap.read()
-        view_frames(frame_1, frame_2)
+        view_frame(concat_frames[frame_1, frame_2])
     return min_index

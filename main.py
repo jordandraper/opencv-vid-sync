@@ -5,8 +5,8 @@ import sys
 import cv2
 import numpy as np
 import workers
-from helpers import (crop_frame, frame_is_letterboxed,
-                     get_fps_cv_native, get_frame_aspect_ratio, view_frames)
+from helpers import (concat_frames, crop_frame, frame_is_letterboxed,
+                     get_fps_cv_native, get_frame_aspect_ratio, view_frame)
 
 
 def print_find_result(vid_1, vid_2):
@@ -51,8 +51,8 @@ def print_find_result(vid_1, vid_2):
             view = input(
                 f"Would you like to manually view? ")
             if view.lower() == "yes" or view.lower() == 'y':
-                view_frames(
-                    reference_vid.transition_frames[0], to_sync_vid.transition_frames[0])
+                view_frame(
+                    concat_frames((reference_vid.transition_frames[0], to_sync_vid.transition_frames[0])))
                 manual_inspect = input(f"Are the frames in sync? ")
                 if manual_inspect.lower() == "yes" or manual_inspect.lower() == 'y':
                     reference_vid.match_found = True
@@ -202,10 +202,12 @@ def find(file_1, file_2, view=None, save_frames=None):
 
     print_find_result(vid_1, vid_2)
     if view:
-        view_frames(
-            reference_vid.transition_frames[0], to_sync_vid.transition_frames[0])
-        view_frames(
-            reference_vid.transition_frames[1], to_sync_vid.transition_frames[1])
+        match_1 = concat_frames(
+            (reference_vid.transition_frames[0], to_sync_vid.transition_frames[0]))
+        match_2 = concat_frames(
+            (reference_vid.transition_frames[1], to_sync_vid.transition_frames[1]))
+        display_frame = concat_frames([match_1, match_2], axis=0)
+        view_frame(display_frame)
     if save_frames:
 
         cv2.imwrite(os.path.join(os.path.dirname(
@@ -236,7 +238,8 @@ def main():
     os.makedirs(os.path.join(os.path.dirname(
         sys.argv[0]), "results"), exist_ok=True)
     # batch_find("", "",save_frames=True)
-    # find("","")
+    find(".samples//sample_low_res.mp4",
+         "./samples/sample_high_res.mp4", view=True)
 
 
 if __name__ == "__main__":
