@@ -238,7 +238,7 @@ def main():
     os.makedirs(os.path.join(os.path.dirname(
         sys.argv[0]), "results"), exist_ok=True)
     # batch_find("", "",save_frames=True)
-    find(".samples//sample_low_res.mp4",
+    find("./samples/sample_low_res.mp4",
          "./samples/sample_high_res.mp4", view=True)
 
 
