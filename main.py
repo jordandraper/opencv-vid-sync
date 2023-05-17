@@ -8,27 +8,56 @@ import workers
 from helpers import (concat_frames, crop_frame, frame_is_letterboxed,
                      get_fps_cv_native, get_frame_aspect_ratio, view_frame)
 
+BLACK_THRESHOLD = 90
+FPS_FRAME_MULTIPLIER = 20
+EXT_FPS_FRAME_MULTIPLIER = 3*FPS_FRAME_MULTIPLIER
 
-def print_find_result(vid_1, vid_2):
-    if vid_1.reference_vid:
-        reference_vid = vid_1
-        to_sync_vid = vid_2
+
+def get_reference_and_sync_videos(first_vid, second_vid):
+    if first_vid.reference_vid:
+        return first_vid, second_vid
     else:
-        reference_vid = vid_2
-        to_sync_vid = vid_1
+        return second_vid, first_vid
 
-    if not os.path.isfile(os.path.join(os.path.dirname(sys.argv[0]), "results", 'frame_sync.csv')):
-        with open(os.path.join(os.path.dirname(sys.argv[0]), "results", 'frame_sync.csv'), mode='w') as csvfile:
-            csv_writer = csv.writer(
-                csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+
+def write_to_csv(csv_writer, reference_vid, to_sync_vid, timestamp_difference):
+    csv_writer.writerow([reference_vid.file, to_sync_vid.file, reference_vid.match_found,
+                         reference_vid.transition_frames_timestamp, to_sync_vid.transition_frames_timestamp,
+                         timestamp_difference])
+
+
+def handle_no_match_found(reference_vid, to_sync_vid):
+    print(
+        f'\nNo frame match found between {reference_vid.name} and {to_sync_vid.name}')
+    print(
+        f'The closest match has SSIM {to_sync_vid.match_frames_ssim} between frames.\n')
+    view = input(f"Would you like to manually view? ")
+    if view.lower() in ["yes", "y"]:
+        view_frame(concat_frames(
+            (reference_vid.transition_frames[0], to_sync_vid.transition_frames[0])))
+        manual_inspect = input(f"Are the frames in sync? ")
+        if manual_inspect.lower() in ["yes", "y"]:
+            reference_vid.match_found = True
+            to_sync_vid.match_found = True
+
+
+def print_find_result(first_vid, second_vid):
+    reference_vid, to_sync_vid = get_reference_and_sync_videos(
+        first_vid, second_vid)
+
+    results_dir = os.path.join(os.path.dirname(sys.argv[0]), "results")
+    results_file = os.path.join(results_dir, 'frame_sync.csv')
+
+    with open(results_file, mode='a' if os.path.isfile(results_file) else 'w') as csvfile:
+        csv_writer = csv.writer(csvfile, delimiter=',',
+                                quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        if csvfile.mode == 'w':
             csv_writer.writerow(
                 ["File 1", "File 2", "Match Found", "V1F1 Timestamp", "V2F1 Timestamp", "Delay"])
 
-    with open(os.path.join(os.path.dirname(sys.argv[0]), "results", 'frame_sync.csv'), mode='a') as csvfile:
-        csv_writer = csv.writer(csvfile, delimiter=',',
-                                quotechar='"', quoting=csv.QUOTE_MINIMAL)
         timestamp_difference = reference_vid.transition_frames_timestamp - \
             to_sync_vid.transition_frames_timestamp
+
         if reference_vid.match_found:
             print(
                 f'\nMatch found between {reference_vid.name} and {to_sync_vid.name}!')
@@ -40,29 +69,22 @@ def print_find_result(vid_1, vid_2):
                 f'{to_sync_vid.name} timestamp is {to_sync_vid.transition_frames_timestamp}ms.')
             print(
                 f'{to_sync_vid.name} needs to be delayed {timestamp_difference} milliseconds.\n')
-
-            csv_writer.writerow(
-                [reference_vid.file, to_sync_vid.file, reference_vid.match_found, reference_vid.transition_frames_timestamp, to_sync_vid.transition_frames_timestamp, timestamp_difference])
+            write_to_csv(csv_writer, reference_vid,
+                         to_sync_vid, timestamp_difference)
         else:
-            print(
-                f'\nNo frame match found between {reference_vid.name} and {to_sync_vid.name}')
-            print(
-                f'The closest match has SSIM {to_sync_vid.match_frames_ssim} between frames.\n')
-            view = input(
-                f"Would you like to manually view? ")
-            if view.lower() == "yes" or view.lower() == 'y':
-                view_frame(
-                    concat_frames((reference_vid.transition_frames[0], to_sync_vid.transition_frames[0])))
-                manual_inspect = input(f"Are the frames in sync? ")
-                if manual_inspect.lower() == "yes" or manual_inspect.lower() == 'y':
-                    reference_vid.match_found = True
-                    to_sync_vid.match_found = True
+            handle_no_match_found(reference_vid, to_sync_vid)
+            write_to_csv(csv_writer, reference_vid,
+                         to_sync_vid, timestamp_difference)
 
-                    csv_writer.writerow(
-                        [reference_vid.file, to_sync_vid.file, reference_vid.match_found, reference_vid.transition_frames_timestamp, to_sync_vid.transition_frames_timestamp, timestamp_difference])
-                else:
-                    csv_writer.writerow(
-                        [reference_vid.file, to_sync_vid.file, reference_vid.match_found])
+
+class VideoOpenError(Exception):
+    """Exception raised when an error occurs opening the video file."""
+    pass
+
+
+class FrameConversionError(Exception):
+    """Exception raised when an error occurs converting a frame."""
+    pass
 
 
 class VideoSource():
@@ -91,14 +113,21 @@ class VideoSource():
 
     def set_vid_info(self):
         """Get first non-black frame and check for letterboxing"""
-        cap_1 = cv2.VideoCapture(self.file)
+        try:
+            cap_1 = cv2.VideoCapture(self.file)
+        except cv2.error as e:
+            raise VideoOpenError(f"Error opening video file: {e}")
         while True:
             _, v1f = cap_1.read()
 
-            # converts the frame to gray scale for easier computation
-            gray = cv2.cvtColor(v1f, cv2.COLOR_BGR2GRAY)
+            try:
+                # converts the frame to gray scale for easier computation
+                gray = cv2.cvtColor(v1f, cv2.COLOR_BGR2GRAY)
+            except cv2.error as e:
+                raise FrameConversionError(
+                    f"Error converting frame to grayscale: {e}")
 
-            if np.average(gray) < 90:
+            if np.average(gray) < BLACK_THRESHOLD:
                 # skips an iteration, so the frame isn't saved
                 continue
             else:
@@ -111,47 +140,40 @@ class VideoSource():
         # self.frame_difference_sample, self.framerate_type = vfr_cfr_check(self.file)
 
 
-def compare_aspect_dim(vid_1, vid_2):
-    cropped_v1f = crop_frame(vid_1.non_black_frame,
-                             vid_1.crop_height_mask, vid_1.crop_width_mask)
-    cropped_v2f = crop_frame(vid_2.non_black_frame,
-                             vid_2.crop_height_mask, vid_2.crop_width_mask)
+def set_video_properties(vid_1, vid_2, is_vid_1_scaled):
+    vid_1.scale = is_vid_1_scaled
+    vid_2.scale = not is_vid_1_scaled
+    vid_1.reference_vid = not is_vid_1_scaled
+    vid_2.reference_vid = is_vid_1_scaled
+    vid_1.to_sync_vid = is_vid_1_scaled
+    vid_2.to_sync_vid = not is_vid_1_scaled
+
+
+def compare_aspect_dim(first_vid, second_vid):
+    cropped_v1f = crop_frame(first_vid.non_black_frame,
+                             first_vid.crop_height_mask, first_vid.crop_width_mask)
+    cropped_v2f = crop_frame(second_vid.non_black_frame,
+                             second_vid.crop_height_mask, second_vid.crop_width_mask)
 
     width_1, height_1, aspect_1 = get_frame_aspect_ratio(cropped_v1f)
     width_2, height_2, aspect_2 = get_frame_aspect_ratio(cropped_v2f)
 
-    if width_1*height_1 > width_2*height_2:
-        width_scaled = width_2
-        height_scaled = height_2
-        vid_1.scale = True
-        vid_2.scale = False
-        vid_2.reference_vid = True
-        vid_2.to_sync_vid = False
-        vid_1.reference_vid = False
-        vid_1.to_sync_vid = True
-    elif width_1*height_1 < width_2*height_2:
-        width_scaled = width_1
-        height_scaled = height_1
-        vid_1.scale = False
-        vid_2.scale = True
-        vid_2.reference_vid = False
-        vid_2.to_sync_vid = True
-        vid_1.reference_vid = True
-        vid_1.to_sync_vid = False
-    else:
-        width_scaled = width_1
-        height_scaled = height_1
-        vid_1.scale = False
-        vid_2.scale = False
-        vid_2.reference_vid = False
-        vid_2.to_sync_vid = True
-        vid_1.reference_vid = True
-        vid_1.to_sync_vid = False
+    area_1, area_2 = width_1*height_1, width_2*height_2
 
-    vid_1.width_scaled = width_scaled
-    vid_1.height_scaled = height_scaled
-    vid_2.width_scaled = width_scaled
-    vid_2.height_scaled = height_scaled
+    if area_1 > area_2:
+        set_video_properties(first_vid, second_vid, True)
+        width_scaled, height_scaled = width_2, height_2
+    elif area_1 < area_2:
+        set_video_properties(first_vid, second_vid, False)
+        width_scaled, height_scaled = width_1, height_1
+    else:
+        set_video_properties(first_vid, second_vid, False)
+        width_scaled, height_scaled = width_1, height_1
+
+    first_vid.width_scaled = width_scaled
+    first_vid.height_scaled = height_scaled
+    second_vid.width_scaled = width_scaled
+    second_vid.height_scaled = height_scaled
 
 
 def find(file_1, file_2, view=None, save_frames=None):
@@ -160,86 +182,83 @@ def find(file_1, file_2, view=None, save_frames=None):
     if save_frames is None:
         save_frames = False
 
-    vid_1 = VideoSource(file_1)
-    vid_2 = VideoSource(file_2)
+    videos = [VideoSource(file_1), VideoSource(file_2)]
 
-    vid_1.set_vid_info()
-    vid_2.set_vid_info()
+    for video in videos:
+        try:
+            video.set_vid_info()
+        except (VideoOpenError, FrameConversionError) as e:
+            print(e)
+            # Handle error: retry, exit, log, etc.
+            # exit the script with a non-zero status to indicate an error
+            sys.exit(1)
 
-    # if vid_1.framerate_type == "Variable" or vid_2.framerate_type == "Variable":
-    #     print("Input video has variable framerate. Sync might not possible.")
-    #     sample = input("Would you like to compare a sample of frame timestamps? ")
-    #     if sample.lower() == "yes" or sample.lower() == 'y':
-    #         if vid_1.frame_difference_sample==vid_2.frame_difference_sample:
-    #             print("Differences match, attempting sync!")
-    #         else:
-    #             print("Differences do not match, abandoning sync!")
-    #             return
-    #     else:
-    #         return
-
-    if vid_1.fps != vid_2.fps:
+    if not all(videos[0].fps == video.fps for video in videos):
         print(
-            f"Input videos have different framerates of {vid_1.fps} and {vid_2.fps}. Sync not possible without re-encode.")
+            f"Input videos have different framerates. Sync not possible without re-encode.")
         return
 
-    compare_aspect_dim(vid_1, vid_2)
+    compare_aspect_dim(*videos)
 
-    if vid_2.reference_vid:
-        reference_vid = vid_2
-        to_sync_vid = vid_1
-    else:
-        reference_vid = vid_1
-        to_sync_vid = vid_2
+    reference_vid, to_sync_vid = get_reference_and_sync_videos(*videos)
+
     workers.threaded_ssim(reference_vid,
-                          workers.Worker_Transition, min, frame_window=[0, int(20*reference_vid.fps)])
+                          workers.Worker_Transition, min, frame_window=[0, int(FPS_FRAME_MULTIPLIER*reference_vid.fps)])
 
     quick_match = workers.quick_match_check(
         reference_vid, to_sync_vid)
     if not quick_match:
         workers.threaded_ssim(
-            to_sync_vid, workers.Worker_Transition_Match, max, video_source_2=reference_vid, frame_window=[0, int(60*reference_vid.fps)])
+            to_sync_vid, workers.Worker_Transition_Match, max, video_source_2=reference_vid, frame_window=[0, int(EXT_FPS_FRAME_MULTIPLIER*reference_vid.fps)])
 
-    print_find_result(vid_1, vid_2)
+    videos = [reference_vid, to_sync_vid]
+
+    print_find_result(*videos)
+
     if view:
-        match_1 = concat_frames(
-            (reference_vid.transition_frames[0], to_sync_vid.transition_frames[0]))
-        match_2 = concat_frames(
-            (reference_vid.transition_frames[1], to_sync_vid.transition_frames[1]))
-        display_frame = concat_frames([match_1, match_2], axis=0)
+        matches = []
+        for i in range(2):
+            match = concat_frames(
+                (reference_vid.transition_frames[i], to_sync_vid.transition_frames[i]))
+            matches.append(match)
+        display_frame = concat_frames(matches, axis=0)
         view_frame(display_frame)
-    if save_frames:
 
-        cv2.imwrite(os.path.join(os.path.dirname(
-            sys.argv[0]), "results", reference_vid.name+'.reference_0.jpg'), reference_vid.transition_frames[0])
-        cv2.imwrite(os.path.join(os.path.dirname(
-            sys.argv[0]), "results", reference_vid.name+'.reference_1.jpg'), reference_vid.transition_frames[1])
-        cv2.imwrite(os.path.join(os.path.dirname(
-            sys.argv[0]), "results", to_sync_vid.name+'.to_sync_0.jpg'), to_sync_vid.transition_frames[0])
-        cv2.imwrite(os.path.join(os.path.dirname(
-            sys.argv[0]), "results", to_sync_vid.name+'.to_sync_1.jpg'), to_sync_vid.transition_frames[1])
-    return vid_1, vid_2
+    if save_frames:
+        cwd = os.path.dirname(sys.argv[0])
+        for i in range(2):
+            cv2.imwrite(os.path.join(
+                cwd, "results", f"{reference_vid.name}.reference_{i}.jpg"), reference_vid.transition_frames[i])
+            cv2.imwrite(os.path.join(
+                cwd, "results", f"{to_sync_vid.name}.to_sync_{i}.jpg"), to_sync_vid.transition_frames[i])
+
+    return videos
 
 
 def batch_find(dir_1, dir_2, view=None, save_frames=None):
     if view is None:
         view = False
+
     list_1 = sorted((os.path.join(dir_1, f) for f in os.listdir(dir_1)
                     if not f.startswith(".")), key=str.lower)
     list_2 = sorted((os.path.join(dir_2, f) for f in os.listdir(dir_2)
                     if not f.startswith(".")), key=str.lower)
 
     for i, (file_1, file_2) in enumerate(zip(list_1, list_2)):
-        vid_1, vid_2 = find(
+        first_vid, second_vid = find(
             file_1, file_2, view, save_frames)
 
 
 def main():
-    os.makedirs(os.path.join(os.path.dirname(
-        sys.argv[0]), "results"), exist_ok=True)
+    cwd = os.path.dirname(sys.argv[0])
+    try:
+        os.makedirs(os.path.join(cwd, "results"), exist_ok=True)
+    except OSError as e:
+        print(f"Error creating directory: {e}")
+        sys.exit(1)  # exit the script with a non-zero status to indicate an error
     # batch_find("", "",save_frames=True)
-    find("./samples/sample_low_res.mp4",
-         "./samples/sample_high_res.mp4", view=True)
+    find(os.path.join(cwd, "samples", "sample_low_res.mp4"),
+         os.path.join(cwd, "samples", "sample_high_res.mp4"), view=True)
 
 
 if __name__ == "__main__":
