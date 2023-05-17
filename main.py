@@ -32,11 +32,11 @@ def handle_no_match_found(reference_vid, to_sync_vid):
     print(
         f'The closest match has SSIM {to_sync_vid.match_frames_ssim} between frames.\n')
     view = input(f"Would you like to manually view? ")
-    if view.lower() in ["yes", "y"]:
+    if view.strip().lower() in ["yes", "y"]:
         view_frame(concat_frames(
             (reference_vid.transition_frames[0], to_sync_vid.transition_frames[0])))
         manual_inspect = input(f"Are the frames in sync? ")
-        if manual_inspect.lower() in ["yes", "y"]:
+        if manual_inspect.strip().lower() in ["yes", "y"]:
             reference_vid.match_found = True
             to_sync_vid.match_found = True
 
@@ -161,14 +161,12 @@ def compare_aspect_dim(first_vid, second_vid):
     area_1, area_2 = width_1*height_1, width_2*height_2
 
     if area_1 > area_2:
-        set_video_properties(first_vid, second_vid, True)
+        is_vid_1_scaled = True
         width_scaled, height_scaled = width_2, height_2
-    elif area_1 < area_2:
-        set_video_properties(first_vid, second_vid, False)
+    elif area_1 <= area_2:
+        is_vid_1_scaled = False
         width_scaled, height_scaled = width_1, height_1
-    else:
-        set_video_properties(first_vid, second_vid, False)
-        width_scaled, height_scaled = width_1, height_1
+    set_video_properties(first_vid, second_vid, is_vid_1_scaled)
 
     first_vid.width_scaled = width_scaled
     first_vid.height_scaled = height_scaled
