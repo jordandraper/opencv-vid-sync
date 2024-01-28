@@ -3,42 +3,71 @@ import queue
 import threading
 
 import cv2
-from helpers import (MAX_SSIM, MIN_SSIM, SSIM_SCORE_THRESHOLD, concat_frames,
-                     consecutive_ssim_metric, frame_colored, transform_frame,
-                     view_frame)
+from helpers import (
+    MAX_SSIM,
+    MIN_SSIM,
+    SSIM_SCORE_THRESHOLD,
+    concat_frames,
+    consecutive_ssim_metric,
+    frame_colored,
+    transform_frame,
+    view_frame,
+)
 from skimage.metrics import structural_similarity as ssim
 
 
-def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset=None, interactive=None):
+def quick_match_check(
+    reference_vid, to_sync_vid, frame_offset=None, time_offset=None, interactive=None
+):
     quick_match = False
     if interactive is None:
         interactive = False
 
     target_frame_1, target_frame_2 = reference_vid.transition_frames
-    resized_target_frame_1 = transform_frame(target_frame_1, dim=(
-        reference_vid.width_scaled, reference_vid.height_scaled), cropped=(reference_vid.letterbox, reference_vid.crop_height_mask, reference_vid.crop_width_mask))
-    resized_target_frame_2 = transform_frame(target_frame_2, dim=(
-        reference_vid.width_scaled, reference_vid.height_scaled), cropped=(reference_vid.letterbox, reference_vid.crop_height_mask, reference_vid.crop_width_mask))
+    resized_target_frame_1 = transform_frame(
+        target_frame_1,
+        dim=(reference_vid.width_scaled, reference_vid.height_scaled),
+        cropped=(
+            reference_vid.letterbox,
+            reference_vid.crop_height_mask,
+            reference_vid.crop_width_mask,
+        ),
+    )
+    resized_target_frame_2 = transform_frame(
+        target_frame_2,
+        dim=(reference_vid.width_scaled, reference_vid.height_scaled),
+        cropped=(
+            reference_vid.letterbox,
+            reference_vid.crop_height_mask,
+            reference_vid.crop_width_mask,
+        ),
+    )
 
     cap = cv2.VideoCapture(to_sync_vid.file)
 
     if frame_offset is not None:
         # set position by frame
-        cap.set(cv2.CAP_PROP_POS_FRAMES,
-                reference_vid.transition_frames_number + frame_offset)
-        positive_output = f'{reference_vid.file} is in sync with {to_sync_vid.file} with an offset of {frame_offset} frames!\n'
-        negative_output = f'{reference_vid.file} is out of sync with {to_sync_vid.file} with an offset of {frame_offset} frames!\n'
+        cap.set(
+            cv2.CAP_PROP_POS_FRAMES,
+            reference_vid.transition_frames_number + frame_offset,
+        )
+        positive_output = f"{reference_vid.file} is in sync with {to_sync_vid.file} with an offset of {frame_offset} frames!\n"
+        negative_output = f"{reference_vid.file} is out of sync with {to_sync_vid.file} with an offset of {frame_offset} frames!\n"
 
     elif time_offset is not None:
         # set position by timestamp
-        cap.set(cv2.CAP_PROP_POS_MSEC,
-                reference_vid.transition_frames_timestamp + time_offset)
-        positive_output = f'{reference_vid.name} is in sync with {to_sync_vid.name} with an offset of {time_offset/1000} milliseconds!\n'
-        negative_output = f'{reference_vid.name} is out of sync with {to_sync_vid.name} with an offset of {time_offset/1000} milliseconds!\n'
+        cap.set(
+            cv2.CAP_PROP_POS_MSEC,
+            reference_vid.transition_frames_timestamp + time_offset,
+        )
+        positive_output = f"{reference_vid.name} is in sync with {to_sync_vid.name} with an offset of {time_offset/1000} milliseconds!\n"
+        negative_output = f"{reference_vid.name} is out of sync with {to_sync_vid.name} with an offset of {time_offset/1000} milliseconds!\n"
     else:
         cap.set(cv2.CAP_PROP_POS_MSEC, reference_vid.transition_frames_timestamp)
-        positive_output = f'{reference_vid.name} is in sync with {to_sync_vid.name}!'
-        negative_output = f'{reference_vid.name} is out of sync with {to_sync_vid.name}!'
+        positive_output = f"{reference_vid.name} is in sync with {to_sync_vid.name}!"
+        negative_output = (
+            f"{reference_vid.name} is out of sync with {to_sync_vid.name}!"
+        )
     frame_number = cap.get(cv2.CAP_PROP_POS_FRAMES)
     _, frame_1 = cap.read()
     timestamp = round(cap.get(cv2.CAP_PROP_POS_MSEC))
@@ -46,22 +75,47 @@ def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset
     success, frame_2 = cap.read()
     if success:
         if to_sync_vid.scale:
-            resized_frame_1 = transform_frame(frame_1, dim=(
-                to_sync_vid.width_scaled, to_sync_vid.height_scaled), cropped=(to_sync_vid.letterbox, to_sync_vid.crop_height_mask, to_sync_vid.crop_width_mask))
-            resized_frame_2 = transform_frame(frame_2, dim=(
-                to_sync_vid.width_scaled, to_sync_vid.height_scaled), cropped=(to_sync_vid.letterbox, to_sync_vid.crop_height_mask, to_sync_vid.crop_width_mask))
+            resized_frame_1 = transform_frame(
+                frame_1,
+                dim=(to_sync_vid.width_scaled, to_sync_vid.height_scaled),
+                cropped=(
+                    to_sync_vid.letterbox,
+                    to_sync_vid.crop_height_mask,
+                    to_sync_vid.crop_width_mask,
+                ),
+            )
+            resized_frame_2 = transform_frame(
+                frame_2,
+                dim=(to_sync_vid.width_scaled, to_sync_vid.height_scaled),
+                cropped=(
+                    to_sync_vid.letterbox,
+                    to_sync_vid.crop_height_mask,
+                    to_sync_vid.crop_width_mask,
+                ),
+            )
         else:
             resized_frame_1 = transform_frame(
-                frame_1, cropped=(to_sync_vid.letterbox, to_sync_vid.crop_height_mask, to_sync_vid.crop_width_mask))
+                frame_1,
+                cropped=(
+                    to_sync_vid.letterbox,
+                    to_sync_vid.crop_height_mask,
+                    to_sync_vid.crop_width_mask,
+                ),
+            )
             resized_frame_2 = transform_frame(
-                frame_2, cropped=(to_sync_vid.letterbox, to_sync_vid.crop_height_mask, to_sync_vid.crop_width_mask))
-        ssim_score_target_frame_1 = ssim(
-            resized_frame_1, resized_target_frame_1)
-        ssim_score_target_frame_2 = ssim(
-            resized_frame_2, resized_target_frame_2)
+                frame_2,
+                cropped=(
+                    to_sync_vid.letterbox,
+                    to_sync_vid.crop_height_mask,
+                    to_sync_vid.crop_width_mask,
+                ),
+            )
+        ssim_score_target_frame_1 = ssim(resized_frame_1, resized_target_frame_1)
+        ssim_score_target_frame_2 = ssim(resized_frame_2, resized_target_frame_2)
         double_ssim_metric = consecutive_ssim_metric(
-            ssim_score_target_frame_1, ssim_score_target_frame_2)
-        if double_ssim_metric > .85:
+            ssim_score_target_frame_1, ssim_score_target_frame_2
+        )
+        if double_ssim_metric > 0.85:
             print(positive_output)
             quick_match = True
             reference_vid.match_found = True
@@ -73,18 +127,27 @@ def quick_match_check(reference_vid, to_sync_vid, frame_offset=None, time_offset
             to_sync_vid.match_frames_ssim = double_ssim_metric
         else:
             print(negative_output)
-            if interactive and double_ssim_metric > .5:
+            if interactive and double_ssim_metric > 0.5:
                 view = input(
-                    f"The quick match SSIM is {double_ssim_metric}. Would you like to manually view? ")
-                if view.lower() == "yes" or view.lower() == 'y':
+                    f"The quick match SSIM is {double_ssim_metric}. Would you like to manually view? "
+                )
+                if view.lower() == "yes" or view.lower() == "y":
                     match_1 = concat_frames(
-                        (reference_vid.transition_frames[0], to_sync_vid.transition_frames[0]))
+                        (
+                            reference_vid.transition_frames[0],
+                            to_sync_vid.transition_frames[0],
+                        )
+                    )
                     match_2 = concat_frames(
-                        (reference_vid.transition_frames[1], to_sync_vid.transition_frames[1]))
+                        (
+                            reference_vid.transition_frames[1],
+                            to_sync_vid.transition_frames[1],
+                        )
+                    )
                     display_frame = concat_frames([match_1, match_2], axis=0)
                     view_frame(display_frame)
                     manual_inspect = input(f"Are the frames in sync? ")
-                    if manual_inspect.lower() == "yes" or manual_inspect.lower() == 'y':
+                    if manual_inspect.lower() == "yes" or manual_inspect.lower() == "y":
                         quick_match = True
                         reference_vid.match_found = True
                         to_sync_vid.match_found = True
@@ -106,11 +169,17 @@ class Worker_Transition(threading.Thread):
         self.queue = queue.Queue(maxsize=20)
 
     def decode(self, video_source, fnos, worker_queue, stop_event, result, no_match):
-        self.queue.put((video_source, fnos, worker_queue, stop_event,
-                        result, no_match))
+        self.queue.put((video_source, fnos, worker_queue, stop_event, result, no_match))
 
     def run(self):
-        video_source, fnos, worker_queue, stop_event, result, no_match = self.queue.get()
+        (
+            video_source,
+            fnos,
+            worker_queue,
+            stop_event,
+            result,
+            no_match,
+        ) = self.queue.get()
 
         cap = cv2.VideoCapture(video_source.file)
         min_ssim = MAX_SSIM
@@ -131,11 +200,19 @@ class Worker_Transition(threading.Thread):
 
                     if ssim_score < min_ssim:
                         min_ssim = ssim_score
-                        min_frame = {"Transition Frame SSIM": min_ssim, "Transition Frame Number": frame_number,
-                                     "Transition Frame Timestamp": timestamp, "Transition Frames": [frame_1, frame_2]}
+                        min_frame = {
+                            "Transition Frame SSIM": min_ssim,
+                            "Transition Frame Number": frame_number,
+                            "Transition Frame Timestamp": timestamp,
+                            "Transition Frames": [frame_1, frame_2],
+                        }
 
                     # avoid mostly white & black consecutive frame transition
-                    if ssim_score < SSIM_SCORE_THRESHOLD and frame_colored(resized_frame_1) and frame_colored(resized_frame_2):
+                    if (
+                        ssim_score < SSIM_SCORE_THRESHOLD
+                        and frame_colored(resized_frame_1)
+                        and frame_colored(resized_frame_2)
+                    ):
                         stop_event.set()
                         result.update(min_frame)
                         worker_queue.put(self)
@@ -158,20 +235,60 @@ class Worker_Transition_Match(threading.Thread):
         threading.Thread.__init__(self)
         self.queue = queue.Queue(maxsize=20)
 
-    def decode(self, video_source_1, fnos, worker_queue, stop_event, result, no_match, video_source_2):
-        self.queue.put((video_source_1, fnos, worker_queue,
-                       stop_event, result, no_match, video_source_2))
+    def decode(
+        self,
+        video_source_1,
+        fnos,
+        worker_queue,
+        stop_event,
+        result,
+        no_match,
+        video_source_2,
+    ):
+        self.queue.put(
+            (
+                video_source_1,
+                fnos,
+                worker_queue,
+                stop_event,
+                result,
+                no_match,
+                video_source_2,
+            )
+        )
 
     def run(self):
-        video_source_1, fnos, worker_queue, stop_event, result, no_match, video_source_2 = self.queue.get()
+        (
+            video_source_1,
+            fnos,
+            worker_queue,
+            stop_event,
+            result,
+            no_match,
+            video_source_2,
+        ) = self.queue.get()
         cap = cv2.VideoCapture(video_source_1.file)
         max_ssim = MIN_SSIM
 
         target_frame_1, target_frame_2 = video_source_2.transition_frames
-        target_frame_1 = transform_frame(target_frame_1, dim=(
-            video_source_2.width_scaled, video_source_2.height_scaled), cropped=(video_source_2.letterbox, video_source_2.crop_height_mask, video_source_2.crop_width_mask))
-        target_frame_2 = transform_frame(target_frame_2, dim=(
-            video_source_2.width_scaled, video_source_2.height_scaled), cropped=(video_source_2.letterbox, video_source_2.crop_height_mask, video_source_2.crop_width_mask))
+        target_frame_1 = transform_frame(
+            target_frame_1,
+            dim=(video_source_2.width_scaled, video_source_2.height_scaled),
+            cropped=(
+                video_source_2.letterbox,
+                video_source_2.crop_height_mask,
+                video_source_2.crop_width_mask,
+            ),
+        )
+        target_frame_2 = transform_frame(
+            target_frame_2,
+            dim=(video_source_2.width_scaled, video_source_2.height_scaled),
+            cropped=(
+                video_source_2.letterbox,
+                video_source_2.crop_height_mask,
+                video_source_2.crop_width_mask,
+            ),
+        )
 
         frame_number = fnos[0]
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
@@ -184,29 +301,64 @@ class Worker_Transition_Match(threading.Thread):
                 success, frame_2 = cap.read()
                 if success:
                     if video_source_1.scale:
-                        resized_frame_1 = transform_frame(frame_1, dim=(
-                            video_source_1.width_scaled, video_source_1.height_scaled), cropped=(video_source_1.letterbox, video_source_1.crop_height_mask, video_source_1.crop_width_mask))
-                        resized_frame_2 = transform_frame(frame_2, dim=(
-                            video_source_1.width_scaled, video_source_1.height_scaled), cropped=(video_source_1.letterbox, video_source_1.crop_height_mask, video_source_1.crop_width_mask))
+                        resized_frame_1 = transform_frame(
+                            frame_1,
+                            dim=(
+                                video_source_1.width_scaled,
+                                video_source_1.height_scaled,
+                            ),
+                            cropped=(
+                                video_source_1.letterbox,
+                                video_source_1.crop_height_mask,
+                                video_source_1.crop_width_mask,
+                            ),
+                        )
+                        resized_frame_2 = transform_frame(
+                            frame_2,
+                            dim=(
+                                video_source_1.width_scaled,
+                                video_source_1.height_scaled,
+                            ),
+                            cropped=(
+                                video_source_1.letterbox,
+                                video_source_1.crop_height_mask,
+                                video_source_1.crop_width_mask,
+                            ),
+                        )
                     else:
                         resized_frame_1 = transform_frame(
-                            frame_1, cropped=(video_source_1.letterbox, video_source_1.crop_height_mask, video_source_1.crop_width_mask))
+                            frame_1,
+                            cropped=(
+                                video_source_1.letterbox,
+                                video_source_1.crop_height_mask,
+                                video_source_1.crop_width_mask,
+                            ),
+                        )
                         resized_frame_2 = transform_frame(
-                            frame_2, cropped=(video_source_1.letterbox, video_source_1.crop_height_mask, video_source_1.crop_width_mask))
+                            frame_2,
+                            cropped=(
+                                video_source_1.letterbox,
+                                video_source_1.crop_height_mask,
+                                video_source_1.crop_width_mask,
+                            ),
+                        )
 
-                    ssim_score_target_frame_1 = ssim(
-                        resized_frame_1, target_frame_1)
-                    ssim_score_target_frame_2 = ssim(
-                        resized_frame_2, target_frame_2)
+                    ssim_score_target_frame_1 = ssim(resized_frame_1, target_frame_1)
+                    ssim_score_target_frame_2 = ssim(resized_frame_2, target_frame_2)
 
                     double_ssim_metric = consecutive_ssim_metric(
-                        ssim_score_target_frame_1, ssim_score_target_frame_2)
+                        ssim_score_target_frame_1, ssim_score_target_frame_2
+                    )
                     if double_ssim_metric > max_ssim:
                         max_ssim = double_ssim_metric
-                        max_frame = {"Match Frame SSIM": max_ssim, "Transition Frame Number": frame_number,
-                                     "Transition Frame Timestamp": timestamp, "Transition Frames": [frame_1, frame_2]}
+                        max_frame = {
+                            "Match Frame SSIM": max_ssim,
+                            "Transition Frame Number": frame_number,
+                            "Transition Frame Timestamp": timestamp,
+                            "Transition Frames": [frame_1, frame_2],
+                        }
 
-                    if max_ssim > .85:
+                    if max_ssim > 0.85:
                         stop_event.set()
                         max_frame["Match Found"] = True
                         result.update(max_frame)
@@ -231,12 +383,23 @@ class Worker_Frame_Match(threading.Thread):
         threading.Thread.__init__(self)
         self.queue = queue.Queue(maxsize=20)
 
-    def decode(self, video_path, fnos, worker_queue, stop_event, result, no_match, target_frame):
-        self.queue.put((video_path, fnos, worker_queue,
-                       stop_event, result, no_match, target_frame))
+    def decode(
+        self, video_path, fnos, worker_queue, stop_event, result, no_match, target_frame
+    ):
+        self.queue.put(
+            (video_path, fnos, worker_queue, stop_event, result, no_match, target_frame)
+        )
 
     def run(self):
-        video_path, fnos, worker_queue, stop_event, result, no_match, target_frame = self.queue.get()
+        (
+            video_path,
+            fnos,
+            worker_queue,
+            stop_event,
+            result,
+            no_match,
+            target_frame,
+        ) = self.queue.get()
         cap = cv2.VideoCapture(video_path)
         max_ssim = MIN_SSIM
 
@@ -252,11 +415,16 @@ class Worker_Frame_Match(threading.Thread):
                 ssim_score_target_frame = ssim(resized_frame_1, target_frame)
 
                 if ssim_score_target_frame >= max_ssim:
-                    max_frame = [frame_1, target_frame,
-                                 ssim_score_target_frame, frame_number, timestamp]
+                    max_frame = [
+                        frame_1,
+                        target_frame,
+                        ssim_score_target_frame,
+                        frame_number,
+                        timestamp,
+                    ]
                     max_ssim = ssim_score_target_frame
 
-                if ssim_score_target_frame > .9:
+                if ssim_score_target_frame > 0.9:
                     stop_event.set()
                     worker_queue.put(self)
                     result.extend(max_frame)
@@ -268,7 +436,9 @@ class Worker_Frame_Match(threading.Thread):
             cap.release()
 
 
-def threaded_ssim(video_source_1, worker, closest_match, video_source_2=None, frame_window=None):
+def threaded_ssim(
+    video_source_1, worker, closest_match, video_source_2=None, frame_window=None
+):
     """
     closest_match is preference for max/min when there is no match found for all threads
     """
@@ -280,8 +450,8 @@ def threaded_ssim(video_source_1, worker, closest_match, video_source_2=None, fr
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fnos = list(range(total_frames))  # Frames are 0 indexed
     else:
-        total_frames = frame_window[1]-frame_window[0]+1
-        fnos = list(range(frame_window[0], frame_window[1]+1))
+        total_frames = frame_window[1] - frame_window[0] + 1
+        fnos = list(range(frame_window[0], frame_window[1] + 1))
 
     n_threads = 4  # n_threads is the number of worker threads to read video frame
     # store frame number for each thread
@@ -292,8 +462,14 @@ def threaded_ssim(video_source_1, worker, closest_match, video_source_2=None, fr
         tasks[math.floor(idx / frames_per_thread)].append(fno)
 
     # structure to hold winner and no matches
-    result = {"Transition Frame SSIM": None, "Transition Frame Number": None,
-              "Transition Frame Timestamp": None, "Transition Frames": None, "Match Frame SSIM": None, "Match Found": None}
+    result = {
+        "Transition Frame SSIM": None,
+        "Transition Frame Number": None,
+        "Transition Frame Timestamp": None,
+        "Transition Frames": None,
+        "Match Frame SSIM": None,
+        "Match Found": None,
+    }
     no_match = []
 
     # queue for workers
@@ -313,30 +489,39 @@ def threaded_ssim(video_source_1, worker, closest_match, video_source_2=None, fr
     # t.start()
     if video_source_2 is not None:
         for idx, w in enumerate(threads):
-            w.decode(video_source_1,
-                     tasks[idx], worker_queue, stop_event, result, no_match, video_source_2)
+            w.decode(
+                video_source_1,
+                tasks[idx],
+                worker_queue,
+                stop_event,
+                result,
+                no_match,
+                video_source_2,
+            )
     else:
         for idx, w in enumerate(threads):
-            w.decode(video_source_1,
-                     tasks[idx], worker_queue, stop_event, result, no_match)
+            w.decode(
+                video_source_1, tasks[idx], worker_queue, stop_event, result, no_match
+            )
 
     while worker_queue.empty():
         if len(no_match) != n_threads:
             pass
         else:
-            worker_queue.put('No match!')
+            worker_queue.put("No match!")
             if closest_match is max:
                 closest_frame = closest_match(
-                    no_match, key=lambda x: x["Match Frame SSIM"])
+                    no_match, key=lambda x: x["Match Frame SSIM"]
+                )
             elif closest_match is min:
                 closest_frame = closest_match(
-                    no_match, key=lambda x: x["Transition Frame SSIM"])
+                    no_match, key=lambda x: x["Transition Frame SSIM"]
+                )
             result.update(closest_frame)
             break
 
     if video_source_2 is None:
-        video_source_1.transition_frames_ssim = result.get(
-            "Transition Frame SSIM")
+        video_source_1.transition_frames_ssim = result.get("Transition Frame SSIM")
     else:
         video_source_1.match_frames_ssim = result.get("Match Frame SSIM")
         video_source_1.match_found = result.get("Match Found")
@@ -345,10 +530,10 @@ def threaded_ssim(video_source_1, worker, closest_match, video_source_2=None, fr
             video_source_2.match_found = True
         else:
             video_source_2.match_found = False
-    video_source_1.transition_frames_number = result.get(
-        "Transition Frame Number")
+    video_source_1.transition_frames_number = result.get("Transition Frame Number")
     video_source_1.transition_frames_timestamp = result.get(
-        "Transition Frame Timestamp")
+        "Transition Frame Timestamp"
+    )
     video_source_1.transition_frames = result.get("Transition Frames")
 
     # this will block until the first element is in the queue
