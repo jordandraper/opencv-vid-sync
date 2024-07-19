@@ -1,6 +1,6 @@
 # OpenCV Video Sync
 
-Harness the power of the OpenCV framework to seamlessly synchronize two videos by determining the necessary delay. Experience fast performance with multi-threading, as the video files are intelligently divided into chunks for optimized processing. Unleash the full potential of your video editing with this cutting-edge solution!
+Use OpenCV to synchronize two videos by determining the needed delay. Enjoy fast performance with multi-threading, which divides video files into chunks for better processing. Enhance your video editing with this efficient solution!
 
 ![match_found](https://github.com/jordandraper/opencv-vid-sync/assets/6191881/80715b01-2255-4a56-af94-d6bd829e298c)
 
@@ -77,8 +77,5 @@ To gain a deeper understanding of video analysis and tools, several resources we
 - Prioritize search based on winning frame from consecutive SSIM in target SSIM
 - Begin brute-force search within a window of the original timestamp, then expand on each failure while avoiding previously searched regions
 
-
-
 ## License
-
 This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
