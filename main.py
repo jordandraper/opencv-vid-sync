@@ -60,7 +60,7 @@ def handle_no_match_found(reference_vid, to_sync_vid):
 
 def print_find_result(first_vid, second_vid):
     # reference_vid, to_sync_vid = get_reference_and_sync_videos(first_vid, second_vid)
-    # I don't think we want this^
+    reference_vid, to_sync_vid = first_vid, second_vid
 
     results_dir = os.path.join(os.path.dirname(sys.argv[0]), "results")
     results_file = os.path.join(results_dir, "frame_sync.csv")
